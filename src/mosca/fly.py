@@ -96,7 +96,8 @@ class SparseFlyAgent:
         self.encoder = SparseEncoder(self.config.expansion_width, self.config.hashes_per_token)
         self.rng = random.Random(seed)
         self.weights: dict[str, dict[int, float]] = defaultdict(dict)
-        self.slow_weights: dict[str, dict[str, dict[int, float]]] = {}\n        self._active_context = "global"
+        self.slow_weights: dict[str, dict[str, dict[int, float]]] = {}
+        self._active_context = "global"
         self.traces: dict[tuple[str, int], float] = {}
         self.history: deque[str] = deque(maxlen=self.config.history)
 
