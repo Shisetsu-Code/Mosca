@@ -114,18 +114,25 @@ class SparseFlyAgent:
     def features(self, observation: dict) -> tuple[int, ...]:
         return self.encoder.encode(observation, tuple(self.history))
 
-    def q(self, action: str, features: tuple[int, ...], context: str | None = None) -> float:
+    def q_fast(self, action: str, features: tuple[int, ...]) -> float:
         keys = action_components(action)
         total = 0.0
-        context = self._active_context if context is None else context
-        context_slow = self.slow_weights.get(context, {})
         for key in keys:
             fast = self.weights.get(key, {})
-            slow = context_slow.get(key, {})
-            for i in features:
-                total += fast.get(i, 0.0)
-                total += self.config.slow_mix * slow.get(i, 0.0)
+            total += sum(fast.get(i, 0.0) for i in features)
         return total / math.sqrt(max(1, len(features) * len(keys)))
+
+    def q(self, action: str, features: tuple[int, ...], context: str | None = None) -> float:
+        keys = action_components(action)
+        total = self.q_fast(action, features)
+        context = self._active_context if context is None else context
+        context_slow = self.slow_weights.get(context, {})
+        slow_total = 0.0
+        for key in keys:
+            slow = context_slow.get(key, {})
+            slow_total += sum(slow.get(i, 0.0) for i in features)
+        slow_total /= math.sqrt(max(1, len(features) * len(keys)))
+        return total + self.config.slow_mix * slow_total
 
     def choose(self, observation: dict, valid_actions: tuple[str, ...], *, explore: bool = True) -> tuple[str, tuple[int, ...]]:
         if not valid_actions:
@@ -161,13 +168,14 @@ class SparseFlyAgent:
         done: bool,
     ) -> float:
         context = self._active_context
-        q_now = self.q(action, features, context)
+        # Fast plastic weights learn their own TD error. Contextual slow memory
+        # biases action selection but never enters the prediction error.
+        q_now = self.q_fast(action, features)
         if done or not next_actions:
             target = reward
         else:
-            next_context = self.context_key(next_observation)
             next_features = self.encoder.encode(next_observation, tuple(self.history) + (action,))
-            target = reward + self.config.gamma * max(self.q(a, next_features, next_context) for a in next_actions)
+            target = reward + self.config.gamma * max(self.q_fast(a, next_features) for a in next_actions)
         delta = target - q_now
 
         decay = self.config.gamma * self.config.trace_decay
