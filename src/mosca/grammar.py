@@ -228,8 +228,7 @@ def to_ast(term: Node) -> ast.Module:
 
 
 def source(term: Node) -> str:
-    return ast.unparse(to_ast(term)) + "
-"
+    return ast.unparse(to_ast(term)) + "\n"
 
 
 def validate_runtime_schema() -> dict[str, tuple[str, ...]]:
