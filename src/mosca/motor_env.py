@@ -5,7 +5,7 @@ import copy
 import warnings
 from dataclasses import dataclass
 
-from .sensory import task_sensory_tokens
+from .sensory import task_memory_concepts, task_sensory_tokens
 from .tasks import Task
 
 
@@ -41,6 +41,7 @@ class MotorMaze:
         self.task = task
         self.max_steps = max_steps
         self.sensory = task_sensory_tokens(task)
+        self.memory_concepts = task_memory_concepts(task)
         self.reset()
 
     def reset(self) -> dict:
@@ -122,6 +123,7 @@ class MotorMaze:
         return {
             "first_hole": "motor",
             "sensory": self.sensory,
+            "memory_concepts": self.memory_concepts,
             "holes": max(0, len(self.stack) - 1),
             "nodes": sum(len(f.body) for f in self.stack),
             "tags": {

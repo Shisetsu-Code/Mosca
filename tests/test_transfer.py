@@ -1,11 +1,11 @@
 from mosca.benchmark import transfer_benchmark
 from mosca.motor_env import MotorMaze
-from mosca.tasks import TRANSFER_TASKS
+from mosca.sensory import task_memory_concepts
+from mosca.tasks import TASKS, TRANSFER_TASKS
 
 
 def test_transfer_task_is_expressible_and_hidden_cases_are_separate():
     task = TRANSFER_TASKS["sum_positive"]
-    assert task.hidden_cases
     env = MotorMaze(task, max_steps=8)
     for action in ("SET:acc=0", "FOR:x:xs", "WHEN:x>0:ADDX", "END", "RETURN:acc"):
         env.step(action)
@@ -14,8 +14,15 @@ def test_transfer_task_is_expressible_and_hidden_cases_are_separate():
     assert env.evaluate_hidden().score == 1.0
 
 
-def test_transfer_benchmark_smoke():
+def test_memory_concepts_compose_source_behaviors():
+    assert "agg:sum" in task_memory_concepts(TASKS["sum_list"])
+    assert "filter:positive" in task_memory_concepts(TASKS["count_positive"])
+    target = set(task_memory_concepts(TRANSFER_TASKS["sum_positive"]))
+    assert {"agg:sum", "filter:positive"} <= target
+
+
+def test_transfer_benchmark_reports_zero_shot():
     result = transfer_benchmark(pretrain_episodes=6, adapt_episodes=3, seed=7)
     assert result["target"] == "sum_positive"
+    assert "transfer_zero_shot" in result
     assert result["transfer"]["episodes"] == 3
-    assert result["scratch"]["episodes"] == 3

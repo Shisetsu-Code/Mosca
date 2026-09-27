@@ -29,19 +29,13 @@ def _case_features(xs: list[int], out: int) -> set[str]:
         f"neg:{min(sum(x < 0 for x in xs), 4)}",
         f"zero:{min(sum(x == 0 for x in xs), 3)}",
     }
-    total = sum(xs)
-    pos_sum = sum(x for x in xs if x > 0)
-    neg_sum = sum(x for x in xs if x < 0)
-    pos_count = sum(x > 0 for x in xs)
-    neg_count = sum(x < 0 for x in xs)
-
     relations = {
-        "eq:sum": out == total,
-        "eq:pos_sum": out == pos_sum,
-        "eq:neg_sum": out == neg_sum,
+        "eq:sum": out == sum(xs),
+        "eq:pos_sum": out == sum(x for x in xs if x > 0),
+        "eq:neg_sum": out == sum(x for x in xs if x < 0),
         "eq:len": out == len(xs),
-        "eq:pos_count": out == pos_count,
-        "eq:neg_count": out == neg_count,
+        "eq:pos_count": out == sum(x > 0 for x in xs),
+        "eq:neg_count": out == sum(x < 0 for x in xs),
         "eq:max": bool(xs) and out == max(xs),
         "eq:min": bool(xs) and out == min(xs),
         "member": out in xs if xs else False,
@@ -53,20 +47,16 @@ def _case_features(xs: list[int], out: int) -> set[str]:
     return features
 
 
+def _feature_counts(task: Task) -> tuple[Counter[str], int]:
+    case_sets = [
+        _case_features(list(case.args[0]), int(case.expected))
+        for case in task.cases
+    ]
+    return Counter(token for features in case_sets for token in features), max(1, len(case_sets))
+
+
 def task_sensory_tokens(task: Task) -> tuple[str, ...]:
-    """Compact, deterministic sensory signature derived only from visible I/O cases.
-
-    This replaces the task-name token. The learner sees low-order properties of
-    examples, not natural-language descriptions or target source code.
-    """
-
-    case_sets: list[set[str]] = []
-    for case in task.cases:
-        xs = list(case.args[0])
-        case_sets.append(_case_features(xs, int(case.expected)))
-
-    counts = Counter(token for features in case_sets for token in features)
-    n = max(1, len(case_sets))
+    counts, n = _feature_counts(task)
     tokens: list[str] = []
     for token, count in sorted(counts.items()):
         if count == n:
@@ -77,3 +67,24 @@ def task_sensory_tokens(task: Task) -> tuple[str, ...]:
             freq = "some"
         tokens.append(f"{freq}:{token}")
     return tuple(tokens)
+
+
+def task_memory_concepts(task: Task) -> tuple[str, ...]:
+    """Stable semantic axes used only by slow associative memory."""
+
+    counts, n = _feature_counts(task)
+    stable = {token for token, count in counts.items() if count == n}
+    mapping: dict[str, tuple[str, ...]] = {
+        "eq:sum": ("agg:sum", "filter:all"),
+        "eq:pos_sum": ("agg:sum", "filter:positive"),
+        "eq:neg_sum": ("agg:sum", "filter:negative"),
+        "eq:len": ("agg:count", "filter:all"),
+        "eq:pos_count": ("agg:count", "filter:positive"),
+        "eq:neg_count": ("agg:count", "filter:negative"),
+        "eq:max": ("agg:max", "filter:all"),
+        "eq:min": ("agg:min", "filter:all"),
+    }
+    concepts: set[str] = set()
+    for relation in stable:
+        concepts.update(mapping.get(relation, ()))
+    return tuple(sorted(concepts))
