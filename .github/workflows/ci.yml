@@ -23,4 +23,4 @@ jobs:
       - run: mosca benchmark --episodes 50 --seed 42
 
       - run: mosca motor-reference all
-      - run: mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved
+      - run: mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved --require-fly-generalized

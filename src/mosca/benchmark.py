@@ -107,6 +107,9 @@ def random_motor_baseline(task: Task, episodes: int = 300, seed: int = 0, max_st
     scores: list[float] = []
     shortest_steps = None
     shortest_source = None
+    generalized = 0
+    first_generalized = None
+    shortest_hidden_score = None
     for episode in range(1, episodes + 1):
         score, env = _episode_random_motor(task, rng, max_steps)
         scores.append(score)
@@ -115,9 +118,14 @@ def random_motor_baseline(task: Task, episodes: int = 300, seed: int = 0, max_st
             solved += 1
             first = first or episode
             steps = len(env.actions)
+            hidden = env.evaluate_hidden().score
+            if hidden == 1.0:
+                generalized += 1
+                first_generalized = first_generalized or episode
             if shortest_steps is None or steps < shortest_steps:
                 shortest_steps = steps
                 shortest_source = env.source()
+                shortest_hidden_score = hidden
     return {
         "episodes": episodes,
         "solved": solved,
@@ -126,6 +134,9 @@ def random_motor_baseline(task: Task, episodes: int = 300, seed: int = 0, max_st
         "mean_terminal_score": sum(scores) / max(1, len(scores)),
         "shortest_solution_steps": shortest_steps,
         "shortest_solution_source": shortest_source,
+        "shortest_solution_hidden_score": shortest_hidden_score,
+        "generalized": generalized,
+        "first_generalized": first_generalized,
     }
 
 
@@ -146,6 +157,9 @@ def train_motor_fly(task: Task, episodes: int = 300, seed: int = 0, max_steps: i
     scores: list[float] = []
     shortest_steps = None
     shortest_source = None
+    generalized = 0
+    first_generalized = None
+    shortest_hidden_score = None
 
     for episode in range(1, episodes + 1):
         env = MotorMaze(task, max_steps=max_steps)
@@ -167,9 +181,14 @@ def train_motor_fly(task: Task, episodes: int = 300, seed: int = 0, max_steps: i
             solved += 1
             first = first or episode
             steps = len(env.actions)
+            hidden = env.evaluate_hidden().score
+            if hidden == 1.0:
+                generalized += 1
+                first_generalized = first_generalized or episode
             if shortest_steps is None or steps < shortest_steps:
                 shortest_steps = steps
                 shortest_source = env.source()
+                shortest_hidden_score = hidden
 
     return {
         "episodes": episodes,
@@ -180,6 +199,9 @@ def train_motor_fly(task: Task, episodes: int = 300, seed: int = 0, max_steps: i
         "parameters": agent.parameter_count(),
         "shortest_solution_steps": shortest_steps,
         "shortest_solution_source": shortest_source,
+        "shortest_solution_hidden_score": shortest_hidden_score,
+        "generalized": generalized,
+        "first_generalized": first_generalized,
     }
 
 

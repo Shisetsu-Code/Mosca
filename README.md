@@ -64,7 +64,7 @@ Deterministic smoke benchmark: 300 episodes, seed 42, CPython 3.12.14.
 | \`count_positive\` | 253 | 53 |
 | \`max_list\` | none in 300 | 93 |
 
-This is an engineering smoke test, not a statistically robust scientific result. The important result is that the sparse/recurrent learner now reaches all three programs from scratch in the hierarchical environment. Broader seed sweeps and held-out tasks are the next validation step.
+This is an engineering smoke test, not a statistically robust scientific result. Training reward uses only the visible training cases. A separate hidden case set is never used by the reward/probe; the shortest learned solutions for all three tasks score 100% on that hidden set. Broader seed sweeps and held-out tasks are the next validation step.
 
 ## Run
 
@@ -76,14 +76,13 @@ mosca runtime
 mosca rules
 mosca ast-reference all
 mosca motor-reference all
-mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved
+mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved --require-fly-generalized
 \`\`\`
 
 ## Next milestones
 
-1. Split training and hidden evaluation cases so goal inhibition cannot overfit visible tests.
-2. Run multi-seed statistical comparisons against random search, BFS/MCTS and GRU.
-3. Learn reusable motor options instead of predefining the \`WHEN\` option family.
-4. Expand beyond reductions: filters, maps, nested loops, multiple variables and functions.
-5. Replace task-name input with structured I/O/task sensory features for transfer to unseen tasks.
-6. Only then test connectivity motifs derived from FlyWire against matched synthetic sparse networks.
+1. Run multi-seed statistical comparisons against random search, BFS/MCTS and GRU.
+2. Learn reusable motor options instead of predefining the \`WHEN\` option family.
+3. Expand beyond reductions: filters, maps, nested loops, multiple variables and functions.
+4. Replace task-name input with structured I/O/task sensory features for transfer to unseen tasks.
+5. Only then test connectivity motifs derived from FlyWire against matched synthetic sparse networks.

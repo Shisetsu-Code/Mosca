@@ -11,6 +11,7 @@ def test_motor_reference_programs_are_correct_and_short():
         assert env.done, name
         assert env.last_evaluation is not None, name
         assert env.last_evaluation.score == 1.0, name
+        assert env.evaluate_hidden().score == 1.0, name
         assert len(env.actions) == 5, name
 
 

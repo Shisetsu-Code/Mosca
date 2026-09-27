@@ -48,6 +48,7 @@ class MotorMaze:
         self.actions: list[str] = []
         self.done = False
         self.last_evaluation: Evaluation | None = None
+        self._probe_cache: float | None = None
         return self.observe()
 
     @property
@@ -156,6 +157,8 @@ class MotorMaze:
     def probe_score(self) -> float:
         if not self.acc_defined:
             return 0.0
+        if self._probe_cache is not None:
+            return self._probe_cache
         root = copy.deepcopy(self.root)
 
         def fill_empty(body: list[ast.stmt]) -> None:
@@ -168,7 +171,8 @@ class MotorMaze:
 
         fill_empty(root)
         root.append(ast.Return(ast.Name("acc", ast.Load())))
-        return self._evaluate_root(root).score
+        self._probe_cache = self._evaluate_root(root).score
+        return self._probe_cache
 
     def step(self, action: str) -> tuple[dict, float, bool, dict]:
         if action not in self.valid_actions():
@@ -219,6 +223,7 @@ class MotorMaze:
                 reward += 5.0
             info["evaluation"] = self.last_evaluation
 
+        self._probe_cache = None
         after_probe = self.last_evaluation.score if self.done and self.last_evaluation else self.probe_score()
         reward += 2.0 * (after_probe - before_probe)
         if before_probe >= 1.0 - 1e-12:
@@ -250,7 +255,8 @@ class MotorMaze:
     def source(self) -> str:
         return ast.unparse(self.module()) + "\n"
 
-    def _evaluate_root(self, root: list[ast.stmt]) -> Evaluation:
+    def _evaluate_root(self, root: list[ast.stmt], cases=None) -> Evaluation:
+        cases = self.task.cases if cases is None else cases
         fn = ast.FunctionDef(
             "solve",
             ast.arguments(
@@ -268,11 +274,11 @@ class MotorMaze:
             exec(code, ns, ns)
             solve = ns["solve"]
         except Exception as exc:
-            return Evaluation(False, 0, len(self.task.cases), f"{type(exc).__name__}: {exc}")
+            return Evaluation(False, 0, len(cases), f"{type(exc).__name__}: {exc}")
 
         passed = 0
         error = None
-        for case in self.task.cases:
+        for case in cases:
             try:
                 got = solve(*case.args)
                 if got == case.expected:
@@ -282,7 +288,11 @@ class MotorMaze:
             except Exception as exc:
                 if error is None:
                     error = f"{type(exc).__name__}: {exc}"
-        return Evaluation(True, passed, len(self.task.cases), error)
+        return Evaluation(True, passed, len(cases), error)
 
     def evaluate(self) -> Evaluation:
         return self._evaluate_root(self.root)
+
+    def evaluate_hidden(self) -> Evaluation:
+        cases = self.task.hidden_cases or self.task.cases
+        return self._evaluate_root(self.root, cases)

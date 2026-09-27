@@ -67,6 +67,7 @@ def main() -> None:
     motor_bench.add_argument("--episodes", type=int, default=300)
     motor_bench.add_argument("--seed", type=int, default=42)
     motor_bench.add_argument("--require-fly-solved", action="store_true")
+    motor_bench.add_argument("--require-fly-generalized", action="store_true")
 
     args = parser.parse_args()
 
@@ -97,6 +98,13 @@ def main() -> None:
             ]
             if missing:
                 raise SystemExit("fly failed to solve: " + ", ".join(missing))
+        if args.require_fly_generalized:
+            missing = [
+                name for name, data in result["tasks"].items()
+                if data["fly"]["generalized"] == 0
+            ]
+            if missing:
+                raise SystemExit("fly failed hidden evaluation: " + ", ".join(missing))
         return
 
     result = bfs_solve(TASKS[args.task], max_depth=args.depth)
