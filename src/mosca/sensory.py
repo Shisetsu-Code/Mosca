@@ -54,11 +54,7 @@ def _case_features(xs: list[int], out: int) -> set[str]:
 
 
 def task_sensory_tokens(task: Task) -> tuple[str, ...]:
-    """Compact, deterministic sensory signature derived only from visible I/O cases.
-
-    This replaces the task-name token. The learner sees low-order properties of
-    examples, not natural-language descriptions or target source code.
-    """
+    """Compact deterministic signature derived only from visible I/O cases."""
 
     case_sets: list[set[str]] = []
     for case in task.cases:
@@ -68,12 +64,29 @@ def task_sensory_tokens(task: Task) -> tuple[str, ...]:
     counts = Counter(token for features in case_sets for token in features)
     n = max(1, len(case_sets))
     tokens: list[str] = []
+    stable: set[str] = set()
+
     for token, count in sorted(counts.items()):
         if count == n:
             freq = "all"
+            stable.add(token)
         elif count * 2 >= n:
             freq = "many"
         else:
             freq = "some"
         tokens.append(f"{freq}:{token}")
-    return tuple(tokens)
+
+    concepts: dict[str, tuple[str, ...]] = {
+        "eq:sum": ("concept:agg:sum", "concept:filter:all"),
+        "eq:pos_sum": ("concept:agg:sum", "concept:filter:positive"),
+        "eq:neg_sum": ("concept:agg:sum", "concept:filter:negative"),
+        "eq:len": ("concept:agg:count", "concept:filter:all"),
+        "eq:pos_count": ("concept:agg:count", "concept:filter:positive"),
+        "eq:neg_count": ("concept:agg:count", "concept:filter:negative"),
+        "eq:max": ("concept:agg:max", "concept:filter:all"),
+        "eq:min": ("concept:agg:min", "concept:filter:all"),
+    }
+    for relation in sorted(stable):
+        tokens.extend(concepts.get(relation, ()))
+
+    return tuple(sorted(set(tokens)))
