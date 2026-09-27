@@ -230,7 +230,14 @@ class SparseFlyAgent:
         self._active_context = self.context_key(observation)
         self._active_concepts = tuple(observation.get("memory_concepts", ()))
 
-        if explore and self.rng.random() < self.config.epsilon:
+        if not explore:
+            action = max(
+                valid_actions,
+                key=lambda a: (self.q(a, features, memory_features), a),
+            )
+            return action, features
+
+        if self.rng.random() < self.config.epsilon:
             return self.rng.choice(valid_actions), features
 
         scored = [

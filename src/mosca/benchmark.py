@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import random
 from dataclasses import asdict, dataclass
@@ -313,8 +314,8 @@ def transfer_benchmark(
         _learn_motor_episode(pretrained, sources[episode % len(sources)])
 
     scratch = SparseFlyAgent(_motor_config(), seed=seed)
-    transfer_zero_shot = _zero_shot_summary(pretrained, target)
-    scratch_zero_shot = _zero_shot_summary(scratch, target)
+    transfer_zero_shot = _zero_shot_summary(copy.deepcopy(pretrained), target)
+    scratch_zero_shot = _zero_shot_summary(copy.deepcopy(scratch), target)
     transfer = _adapt_summary(pretrained, target, adapt_episodes)
     baseline = _adapt_summary(scratch, target, adapt_episodes)
     return {
@@ -397,7 +398,7 @@ def transfer_multiseed(
 
 
 
-def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 32) -> dict:
+def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 1) -> dict:
     from .motor_env import MotorMaze
 
     solved = 0
