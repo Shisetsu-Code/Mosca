@@ -12,9 +12,10 @@ from .tasks import TASKS, TRANSFER_TASKS, Task
 class MCTSResult:
     task: str
     simulations: int
-    solved_at: int | None
+    first_visible_at: int | None
+    first_generalizing_at: int | None
     best_train_score: float
-    hidden_score: float
+    best_hidden_score: float
     actions: tuple[str, ...] | None
     source: str | None
 
@@ -57,7 +58,8 @@ def mcts_solve(
     best_actions: tuple[str, ...] | None = None
     best_source: str | None = None
     best_hidden = 0.0
-    solved_at: int | None = None
+    first_visible_at: int | None = None
+    first_generalizing_at: int | None = None
 
     for simulation in range(1, simulations + 1):
         prefix: tuple[str, ...] = ()
@@ -120,13 +122,15 @@ def mcts_solve(
 
         hidden_score = 0.0
         if env.last_evaluation is not None and env.last_evaluation.score == 1.0:
+            if first_visible_at is None:
+                first_visible_at = simulation
             hidden_score = env.evaluate_hidden().score
             if hidden_score > best_hidden:
                 best_hidden = hidden_score
                 best_actions = rollout
                 best_source = env.source()
-            if hidden_score == 1.0 and solved_at is None:
-                solved_at = simulation
+            if hidden_score == 1.0 and first_generalizing_at is None:
+                first_generalizing_at = simulation
                 best_train = 1.0
                 best_hidden = 1.0
                 best_actions = rollout
@@ -138,15 +142,13 @@ def mcts_solve(
             visits[node] = visits.get(node, 0) + 1
             values[node] = values.get(node, 0.0) + reward
 
-        if solved_at is not None:
-            break
-
     return MCTSResult(
         task=task.name,
-        simulations=simulation if simulations else 0,
-        solved_at=solved_at,
+        simulations=simulations,
+        first_visible_at=first_visible_at,
+        first_generalizing_at=first_generalizing_at,
         best_train_score=best_train,
-        hidden_score=best_hidden,
+        best_hidden_score=best_hidden,
         actions=best_actions,
         source=best_source,
     )
@@ -178,12 +180,12 @@ def mcts_multiseed(
             mcts_solve(task, simulations=simulations, seed=seed + task_index)
             for seed in seeds
         ]
-        solved = [r.solved_at for r in results if r.solved_at is not None]
+        solved = [r.first_generalizing_at for r in results if r.first_generalizing_at is not None]
         per_task[name] = {
             "seed_successes": len(solved),
-            "mean_solved_at": (sum(solved) / len(solved)) if solved else None,
-            "best_solved_at": min(solved) if solved else None,
-            "worst_solved_at": max(solved) if solved else None,
+            "mean_first_generalizing_at": (sum(solved) / len(solved)) if solved else None,
+            "best_first_generalizing_at": min(solved) if solved else None,
+            "worst_first_generalizing_at": max(solved) if solved else None,
             "runs": [asdict(r) for r in results],
         }
 
