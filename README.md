@@ -74,7 +74,8 @@ mosca runtime
 mosca rules
 mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved --require-fly-generalized
 mosca motor-multiseed --episodes 150 --seeds 0,1,2
-mosca transfer-benchmark --pretrain-episodes 300 --adapt-episodes 200 --seed 42
+mosca transfer-benchmark --pretrain-episodes 900 --adapt-episodes 300 --seed 42
+mosca transfer-multiseed --pretrain-episodes 600 --adapt-episodes 250 --seeds 0,1,2,3,4
 ```
 
 ## Next milestones
@@ -86,6 +87,19 @@ mosca transfer-benchmark --pretrain-episodes 300 --adapt-episodes 200 --seed 42
 5. Only after controlled baselines, test FlyWire-derived connectivity motifs against matched synthetic sparse networks.
 
 
-## Experimental consolidation branch
+## Two-timescale contextual memory
 
-The transfer experiments also test a two-timescale memory: fast weights keep adapting, while successful trajectories can partially consolidate eligibility-trace synapses into slow weights. Slow weights are read together with fast weights but are updated only on high-reward terminal outcomes.
+Successful trajectories can partially consolidate eligibility-trace synapses into slow weights. Slow memory is keyed by the sensory signature that created it, so source-task memories do not directly score actions on an unseen task.
+
+The slow memory influences action selection, but the TD prediction error is computed only from fast shared weights. This separation was important: global slow memory caused negative transfer, and contextual slow memory coupled into TD still slowed discovery.
+
+Five-seed transfer benchmark (`sum_positive`, 600 source-pretraining episodes, 250 adaptation episodes):
+
+| Metric | Transfer | Scratch |
+|---|---:|---:|
+| Seeds finding hidden-generalizing solution | 5/5 | 4/5 |
+| Mean first-generalizing episode | 68.2 | 142.0 |
+| Total generalizing solutions | 341 | 188 |
+| Paired first-solution wins | 5 | 0 |
+
+The prior version without slow contextual memory reached 73.4 mean first-generalizing episodes and 256 total generalizing solutions under the same five-seed transfer setup. These are small synthetic tasks, so the result is evidence for the architecture direction, not a claim of general program synthesis.
