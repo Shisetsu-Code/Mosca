@@ -163,3 +163,32 @@ def mcts_benchmark(simulations: int = 500, seed: int = 42) -> dict:
         "seed": seed,
         "tasks": results,
     }
+
+
+
+def mcts_multiseed(
+    simulations: int = 500,
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+) -> dict:
+    tasks = {**TASKS, **TRANSFER_TASKS}
+    per_task: dict[str, dict] = {}
+
+    for task_index, (name, task) in enumerate(tasks.items()):
+        results = [
+            mcts_solve(task, simulations=simulations, seed=seed + task_index)
+            for seed in seeds
+        ]
+        solved = [r.solved_at for r in results if r.solved_at is not None]
+        per_task[name] = {
+            "seed_successes": len(solved),
+            "mean_solved_at": (sum(solved) / len(solved)) if solved else None,
+            "best_solved_at": min(solved) if solved else None,
+            "worst_solved_at": max(solved) if solved else None,
+            "runs": [asdict(r) for r in results],
+        }
+
+    return {
+        "simulations_budget": simulations,
+        "seeds": list(seeds),
+        "tasks": per_task,
+    }
