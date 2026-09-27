@@ -4,7 +4,7 @@ import argparse
 import json
 
 from .ast_env import ASTMaze
-from .benchmark import benchmark_json, motor_benchmark, motor_multiseed, transfer_benchmark
+from .benchmark import benchmark_json, motor_benchmark, motor_multiseed, transfer_benchmark, transfer_multiseed
 from .grammar import rule_manifest
 from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
 from .runtime import runtime_status
@@ -78,6 +78,11 @@ def main() -> None:
     transfer.add_argument("--adapt-episodes", type=int, default=200)
     transfer.add_argument("--seed", type=int, default=42)
 
+    transfer_multi = sub.add_parser("transfer-multiseed", help="repeat compositional transfer across seeds")
+    transfer_multi.add_argument("--pretrain-episodes", type=int, default=600)
+    transfer_multi.add_argument("--adapt-episodes", type=int, default=250)
+    transfer_multi.add_argument("--seeds", default="0,1,2,3,4")
+
     args = parser.parse_args()
 
     if args.command == "runtime":
@@ -122,6 +127,14 @@ def main() -> None:
     if args.command == "transfer-benchmark":
         print(json.dumps(
             transfer_benchmark(args.pretrain_episodes, args.adapt_episodes, args.seed),
+            indent=2,
+            sort_keys=True,
+        ))
+        return
+    if args.command == "transfer-multiseed":
+        seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
+        print(json.dumps(
+            transfer_multiseed(args.pretrain_episodes, args.adapt_episodes, seeds),
             indent=2,
             sort_keys=True,
         ))
