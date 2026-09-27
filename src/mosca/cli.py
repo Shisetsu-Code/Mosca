@@ -9,7 +9,7 @@ from .grammar import rule_manifest
 from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
 from .runtime import runtime_status
 from .motor_env import MotorMaze
-from .mcts import mcts_benchmark
+from .mcts import mcts_benchmark, mcts_multiseed
 from .search import bfs_solve
 from .tasks import TASKS
 
@@ -88,6 +88,10 @@ def main() -> None:
     mcts.add_argument("--simulations", type=int, default=500)
     mcts.add_argument("--seed", type=int, default=42)
 
+    mcts_multi = sub.add_parser("mcts-multiseed", help="repeat UCT baseline across deterministic seeds")
+    mcts_multi.add_argument("--simulations", type=int, default=500)
+    mcts_multi.add_argument("--seeds", default="0,1,2,3,4")
+
     args = parser.parse_args()
 
     if args.command == "runtime":
@@ -146,6 +150,10 @@ def main() -> None:
         return
     if args.command == "mcts-benchmark":
         print(json.dumps(mcts_benchmark(args.simulations, args.seed), indent=2, sort_keys=True))
+        return
+    if args.command == "mcts-multiseed":
+        seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
+        print(json.dumps(mcts_multiseed(args.simulations, seeds), indent=2, sort_keys=True))
         return
 
     result = bfs_solve(TASKS[args.task], max_depth=args.depth)
