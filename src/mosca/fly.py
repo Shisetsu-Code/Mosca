@@ -23,8 +23,6 @@ class FlyConfig:
 
 
 class SparseEncoder:
-    """Deterministic sparse expansion code, analogous in function to KC expansion."""
-
     def __init__(self, width: int = 8192, hashes_per_token: int = 4):
         self.width = width
         self.hashes_per_token = hashes_per_token
@@ -62,25 +60,17 @@ class SparseEncoder:
 
 
 def action_components(action: str) -> tuple[str, ...]:
-    """Factor both control structure and semantic effect."""
-
+    """Original fast-policy factorization. Kept stable for baseline behavior."""
     keys = [f"exact:{action}"]
     if action.startswith("SET:acc="):
         rhs = action.split("=", 1)[1]
         rhs_kind = "const" if rhs.lstrip("-").isdigit() else "input" if rhs.startswith("xs") else "var"
-        keys += (
-            "op:SET", "dst:acc", f"rhs_kind:{rhs_kind}", f"rhs:{rhs}",
-            "effect:set", f"effect_rhs:{rhs}",
-        )
+        keys += ("op:SET", "dst:acc", f"rhs_kind:{rhs_kind}", f"rhs:{rhs}")
     elif action.startswith("AUG:acc"):
         rest = action[len("AUG:acc"):]
         symbol = rest[0]
         rhs = rest[2:]
-        effect = {"+": "add", "-": "sub", "*": "mul"}[symbol]
-        keys += (
-            "op:AUG", "dst:acc", f"arith:{symbol}", f"rhs:{rhs}",
-            f"effect:{effect}", f"effect_rhs:{rhs}",
-        )
+        keys += ("op:AUG", "dst:acc", f"arith:{symbol}", f"rhs:{rhs}")
     elif action == "FOR:x:xs":
         keys += ("op:FOR", "iter:x", "source:xs")
     elif action.startswith("WHEN:"):
@@ -88,39 +78,71 @@ def action_components(action: str) -> tuple[str, ...]:
         cond, update = payload.rsplit(":", 1)
         symbol = "==" if "==" in cond else ">" if ">" in cond else "<"
         left, right = cond.split(symbol, 1)
-        effect_map = {
-            "SETX": ("set", "x"),
-            "INC1": ("add", "1"),
-            "ADDX": ("add", "x"),
-        }
-        effect, effect_rhs = effect_map[update]
         keys += (
-            "op:WHEN", f"lhs:{left}", f"cmp:{symbol}", f"cond_rhs:{right}",
-            f"update:{update}", "dst:acc",
-            f"effect:{effect}", f"effect_rhs:{effect_rhs}",
+            "op:WHEN",
+            f"lhs:{left}",
+            f"cmp:{symbol}",
+            f"cond_rhs:{right}",
+            f"update:{update}",
         )
     elif action == "END":
         keys += ("op:END",)
     elif action.startswith("RETURN:"):
+        keys += ("op:RETURN", f"rhs:{action.split(':', 1)[1]}")
+    return tuple(keys)
+
+
+def memory_action_components(action: str) -> tuple[str, ...]:
+    """Semantic factorization used only by task-independent concept memory."""
+    keys = [f"exact:{action}"]
+    if action.startswith("SET:acc="):
+        rhs = action.split("=", 1)[1]
+        keys += ("control:write", "dst:acc", "effect:set", f"effect_rhs:{rhs}")
+    elif action.startswith("AUG:acc"):
+        rest = action[len("AUG:acc"):]
+        symbol = rest[0]
+        rhs = rest[2:]
+        effect = {"+": "add", "-": "sub", "*": "mul"}[symbol]
+        keys += ("control:write", "dst:acc", f"effect:{effect}", f"effect_rhs:{rhs}")
+    elif action == "FOR:x:xs":
+        keys += ("control:loop", "iter:x", "source:xs")
+    elif action.startswith("WHEN:"):
+        payload = action[len("WHEN:"):]
+        cond, update = payload.rsplit(":", 1)
+        symbol = "==" if "==" in cond else ">" if ">" in cond else "<"
+        left, right = cond.split(symbol, 1)
+        effect, effect_rhs = {
+            "SETX": ("set", "x"),
+            "INC1": ("add", "1"),
+            "ADDX": ("add", "x"),
+        }[update]
+        keys += (
+            "control:conditional",
+            f"lhs:{left}",
+            f"cmp:{symbol}",
+            f"cond_rhs:{right}",
+            "dst:acc",
+            f"effect:{effect}",
+            f"effect_rhs:{effect_rhs}",
+        )
+    elif action == "END":
+        keys += ("control:end",)
+    elif action.startswith("RETURN:"):
         rhs = action.split(":", 1)[1]
-        keys += ("op:RETURN", f"rhs:{rhs}", "effect:return", f"effect_rhs:{rhs}")
+        keys += ("control:return", f"effect_rhs:{rhs}")
     return tuple(keys)
 
 
 class SparseFlyAgent:
-    """Fast task learning plus shared-space concept memory."""
+    """Fast TD policy plus exact-context and compositional slow memories."""
 
     def __init__(self, config: FlyConfig | None = None, seed: int = 0):
         self.config = config or FlyConfig()
         self.encoder = SparseEncoder(self.config.expansion_width, self.config.hashes_per_token)
         self.rng = random.Random(seed)
         self.weights: dict[str, dict[int, float]] = defaultdict(dict)
-
-        # Exact-context memory keeps main's original behavior.
         self.slow_weights: dict[str, dict[str, dict[int, float]]] = {}
-        # Concept memory lives in a task-independent feature space.
         self.concept_weights: dict[str, dict[str, dict[int, float]]] = {}
-
         self._active_context = "global"
         self._active_concepts: tuple[str, ...] = ()
         self._last_memory_features: tuple[int, ...] = ()
@@ -153,8 +175,9 @@ class SparseFlyAgent:
         table: dict[str, dict[int, float]],
         action: str,
         features: tuple[int, ...],
+        component_fn=action_components,
     ) -> float:
-        keys = action_components(action)
+        keys = component_fn(action)
         total = 0.0
         for key in keys:
             weights = table.get(key, {})
@@ -162,7 +185,7 @@ class SparseFlyAgent:
         return total / math.sqrt(max(1, len(features) * len(keys)))
 
     def q_fast(self, action: str, features: tuple[int, ...]) -> float:
-        return self._table_q(self.weights, action, features)
+        return self._table_q(self.weights, action, features, action_components)
 
     def q(
         self,
@@ -175,12 +198,18 @@ class SparseFlyAgent:
 
         context_table = self.slow_weights.get(self._active_context)
         if context_table:
-            slow_values.append(self._table_q(context_table, action, features))
+            slow_values.append(
+                self._table_q(context_table, action, features, action_components)
+            )
 
         for concept in self._active_concepts:
-            concept_table = self.concept_weights.get(concept)
-            if concept_table:
-                slow_values.append(self._table_q(concept_table, action, memory_features))
+            table = self.concept_weights.get(concept)
+            if table:
+                slow_values.append(
+                    self._table_q(
+                        table, action, memory_features, memory_action_components
+                    )
+                )
 
         if slow_values:
             total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
@@ -212,12 +241,12 @@ class SparseFlyAgent:
 
     def _consolidate_context(self) -> None:
         rate = self.config.consolidation_rate
-        context_table = self.slow_weights.setdefault(self._active_context, {})
+        table = self.slow_weights.setdefault(self._active_context, {})
         for (model_key, index), eligibility in self.traces.items():
             if eligibility == 0:
                 continue
             fast = self.weights.get(model_key, {}).get(index, 0.0)
-            slow_table = context_table.setdefault(model_key, {})
+            slow_table = table.setdefault(model_key, {})
             slow = slow_table.get(index, 0.0)
             gain = min(1.0, rate * abs(eligibility))
             slow_table[index] = slow + gain * (fast - slow)
@@ -225,15 +254,14 @@ class SparseFlyAgent:
     def _consolidate_concepts(self) -> None:
         rate = self.config.consolidation_rate
         for concept in self._active_concepts:
-            concept_table = self.concept_weights.setdefault(concept, {})
+            table = self.concept_weights.setdefault(concept, {})
             for (model_key, index), eligibility in self.memory_traces.items():
                 if eligibility <= 0:
                     continue
-                slow_table = concept_table.setdefault(model_key, {})
-                old = slow_table.get(index, 0.0)
+                weights = table.setdefault(model_key, {})
+                old = weights.get(index, 0.0)
                 gain = min(1.0, rate * eligibility)
-                # Successful trajectories consolidate toward a positive action prior.
-                slow_table[index] = old + gain * (1.0 - old)
+                weights[index] = old + gain * (1.0 - old)
 
     def learn(
         self,
@@ -267,14 +295,19 @@ class SparseFlyAgent:
                 else:
                     trace_table[key] = value
 
-        keys = action_components(action)
-        fast_scale = 1.0 / math.sqrt(max(1, len(features) * len(keys)))
-        memory_scale = 1.0 / math.sqrt(max(1, len(self._last_memory_features) * len(keys)))
+        fast_keys = action_components(action)
+        memory_keys = memory_action_components(action)
+        fast_scale = 1.0 / math.sqrt(max(1, len(features) * len(fast_keys)))
+        memory_scale = 1.0 / math.sqrt(
+            max(1, len(self._last_memory_features) * len(memory_keys))
+        )
 
-        for model_key in keys:
+        for model_key in fast_keys:
             for i in features:
                 key = (model_key, i)
                 self.traces[key] = self.traces.get(key, 0.0) + fast_scale
+
+        for model_key in memory_keys:
             for i in self._last_memory_features:
                 key = (model_key, i)
                 self.memory_traces[key] = self.memory_traces.get(key, 0.0) + memory_scale
