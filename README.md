@@ -106,9 +106,27 @@ mosca transfer-multiseed --pretrain-episodes 600 --adapt-episodes 250 --seeds 0,
 
 ## Next milestones
 
-1. Add MCTS over exactly the same `MotorMaze` as a strong non-neural search baseline.
+1. Instrument exact visible-test/oracle calls for compute-normalized Fly vs MCTS comparisons.
 2. Add several independent held-out compositions and require zero-shot transfer across them.
 3. Learn motor options instead of predefining the `WHEN` family.
 4. Add a GRU baseline with matched action/state access.
 5. Expand to multiple variables, filters/maps, nested loops and multiple functions.
 6. Only after controlled baselines, test FlyWire-derived connectivity motifs against matched synthetic sparse networks.
+
+
+## MCTS baseline
+
+Mosca now includes a UCT/MCTS baseline over exactly the same `MotorMaze`. MCTS receives the same legal actions and visible-test probe. Hidden cases never affect selection or backpropagation; the search executes its full fixed budget and hidden results are telemetry only.
+
+Five-seed benchmark, 500-simulation budget:
+
+| Task | MCTS success | Mean first hidden-generalizing candidate | Best | Worst |
+|---|---:|---:|---:|---:|
+| `sum_list` | 5/5 | 44.8 | 9 | 92 |
+| `count_positive` | 5/5 | 52.6 | 6 | 108 |
+| `max_list` | 5/5 | 120.4 | 33 | 192 |
+| `sum_positive` | 5/5 | 65.2 | 31 | 124 |
+
+This is a strong baseline. The pretrained Mosca agent reaches its first hidden-generalizing `sum_positive` solution at 49.0 target-adaptation episodes on average, versus 65.2 MCTS simulations, but Mosca first spent 600 source-pretraining episodes. Episode count and MCTS simulation count are not yet equivalent compute measures because MCTS replays prefixes and both systems invoke the visible-test probe internally.
+
+The next comparison therefore measures visible-test/oracle calls and executed program cases directly rather than treating an episode and a simulation as equal units.
