@@ -103,3 +103,8 @@ Five-seed transfer benchmark (`sum_positive`, 600 source-pretraining episodes, 2
 | Paired first-solution wins | 5 | 0 |
 
 The prior version without slow contextual memory reached 73.4 mean first-generalizing episodes and 256 total generalizing solutions under the same five-seed transfer setup. These are small synthetic tasks, so the result is evidence for the architecture direction, not a claim of general program synthesis.
+
+
+## Classical search baseline
+
+`mosca mcts-benchmark` runs UCT/MCTS over the exact same `MotorMaze` action space. It sees only visible training reward during search; hidden cases are checked only after a visible solution is found. This separates the value of the structured programming world from the value of the fly-inspired learner.
