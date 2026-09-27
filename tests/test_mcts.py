@@ -16,3 +16,12 @@ def test_mcts_benchmark_contains_core_and_transfer_tasks():
     assert "count_positive" in result["tasks"]
     assert "max_list" in result["tasks"]
     assert "sum_positive" in result["tasks"]
+
+
+
+def test_mcts_multiseed_shape():
+    from mosca.mcts import mcts_multiseed
+
+    result = mcts_multiseed(simulations=3, seeds=(0, 1))
+    assert result["seeds"] == [0, 1]
+    assert len(result["tasks"]["sum_list"]["runs"]) == 2
