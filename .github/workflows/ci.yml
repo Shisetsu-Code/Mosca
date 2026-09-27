@@ -27,3 +27,4 @@ jobs:
 
       - run: mosca motor-multiseed --episodes 75 --seeds 0,1,2
       - run: mosca transfer-benchmark --pretrain-episodes 900 --adapt-episodes 300 --seed 42
+      - run: mosca transfer-multiseed --pretrain-episodes 600 --adapt-episodes 250 --seeds 0,1,2,3,4
