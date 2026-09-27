@@ -84,3 +84,8 @@ mosca transfer-benchmark --pretrain-episodes 300 --adapt-episodes 200 --seed 42
 3. Learn reusable motor options instead of predefining the `WHEN` option family.
 4. Expand beyond reductions: filters, maps, nested loops, multiple variables and functions.
 5. Only after controlled baselines, test FlyWire-derived connectivity motifs against matched synthetic sparse networks.
+
+
+## Experimental consolidation branch
+
+The transfer experiments also test a two-timescale memory: fast weights keep adapting, while successful trajectories can partially consolidate eligibility-trace synapses into slow weights. Slow weights are read together with fast weights but are updated only on high-reward terminal outcomes.

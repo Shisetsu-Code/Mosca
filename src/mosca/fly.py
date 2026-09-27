@@ -17,6 +17,9 @@ class FlyConfig:
     gamma: float = 0.97
     trace_decay: float = 0.85
     epsilon: float = 0.18
+    consolidation_rate: float = 0.0
+    slow_mix: float = 0.0
+    consolidation_threshold: float = 7.0
 
 
 class SparseEncoder:
@@ -86,13 +89,14 @@ def action_components(action: str) -> tuple[str, ...]:
 
 
 class SparseFlyAgent:
-    """Sparse recurrent TD(lambda) policy with reward-modulated eligibility traces."""
+    """Sparse recurrent TD(lambda) policy with optional slow synaptic consolidation."""
 
     def __init__(self, config: FlyConfig | None = None, seed: int = 0):
         self.config = config or FlyConfig()
         self.encoder = SparseEncoder(self.config.expansion_width, self.config.hashes_per_token)
         self.rng = random.Random(seed)
         self.weights: dict[str, dict[int, float]] = defaultdict(dict)
+        self.slow_weights: dict[str, dict[int, float]] = defaultdict(dict)
         self.traces: dict[tuple[str, int], float] = {}
         self.history: deque[str] = deque(maxlen=self.config.history)
 
@@ -107,8 +111,11 @@ class SparseFlyAgent:
         keys = action_components(action)
         total = 0.0
         for key in keys:
-            weights = self.weights.get(key, {})
-            total += sum(weights.get(i, 0.0) for i in features)
+            fast = self.weights.get(key, {})
+            slow = self.slow_weights.get(key, {})
+            for i in features:
+                total += fast.get(i, 0.0)
+                total += self.config.slow_mix * slow.get(i, 0.0)
         return total / math.sqrt(max(1, len(features) * len(keys)))
 
     def choose(self, observation: dict, valid_actions: tuple[str, ...], *, explore: bool = True) -> tuple[str, tuple[int, ...]]:
@@ -119,6 +126,19 @@ class SparseFlyAgent:
             return self.rng.choice(valid_actions), features
         scored = [(self.q(a, features), self.rng.random(), a) for a in valid_actions]
         return max(scored)[2], features
+
+    def _consolidate(self) -> None:
+        rate = self.config.consolidation_rate
+        if rate <= 0:
+            return
+        for (model_key, index), eligibility in self.traces.items():
+            if eligibility == 0:
+                continue
+            fast = self.weights.get(model_key, {}).get(index, 0.0)
+            slow_table = self.slow_weights[model_key]
+            slow = slow_table.get(index, 0.0)
+            gain = min(1.0, rate * abs(eligibility))
+            slow_table[index] = slow + gain * (fast - slow)
 
     def learn(
         self,
@@ -156,8 +176,17 @@ class SparseFlyAgent:
             table = self.weights[model_key]
             table[index] = table.get(index, 0.0) + self.config.alpha * delta * eligibility
 
+        if done and reward >= self.config.consolidation_threshold:
+            self._consolidate()
+
         self.history.append(action)
         return delta
 
-    def parameter_count(self) -> int:
+    def fast_parameter_count(self) -> int:
         return sum(len(w) for w in self.weights.values())
+
+    def slow_parameter_count(self) -> int:
+        return sum(len(w) for w in self.slow_weights.values())
+
+    def parameter_count(self) -> int:
+        return self.fast_parameter_count() + self.slow_parameter_count()

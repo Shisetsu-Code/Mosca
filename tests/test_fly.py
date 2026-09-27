@@ -38,3 +38,23 @@ def test_fly_agent_updates_factor_weights():
     next_obs, reward, done, _ = env.step(action)
     agent.learn(features, action, reward, next_obs, env.valid_actions(), done)
     assert agent.parameter_count() > 0
+
+
+
+def test_success_can_consolidate_fast_weights_into_slow_weights():
+    from mosca.fly import FlyConfig
+
+    config = FlyConfig(
+        consolidation_rate=1.0,
+        slow_mix=0.5,
+        consolidation_threshold=-1.0,
+    )
+    agent = SparseFlyAgent(config, seed=3)
+    env = MotorMaze(TASKS["sum_list"])
+    agent.begin_episode()
+    obs = env.observe()
+    action, features = agent.choose(obs, env.valid_actions())
+    next_obs, reward, _, _ = env.step(action)
+    agent.learn(features, action, max(reward, 0.0), next_obs, env.valid_actions(), True)
+    assert agent.fast_parameter_count() > 0
+    assert agent.slow_parameter_count() > 0

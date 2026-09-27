@@ -224,6 +224,9 @@ def _motor_config() -> FlyConfig:
         gamma=0.98,
         trace_decay=0.93,
         history=8,
+        consolidation_rate=0.12,
+        slow_mix=0.45,
+        consolidation_threshold=7.0,
     )
 
 
