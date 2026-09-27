@@ -1,23 +1,39 @@
 # Mosca
 
-Experimental program-synthesis environment inspired by the navigation and reward-learning principles of *Drosophila*, without pretending that a fly connectome is already a code generator.
+Experimental program synthesis inspired by the navigation and reward-learning principles of *Drosophila*.
 
-The core hypothesis is simple: treat programming as navigation through a constrained state space instead of next-token prediction.
+The working hypothesis is that programming can be represented as navigation through a constrained state space instead of next-token prediction. Python syntax and structural legality belong to the environment; the learner only selects legal transitions.
 
-## v0 model
+## Current architecture
 
-- **World:** a deliberately tiny subset of Python.
-- **Position:** current partial program / block context.
-- **Moves:** valid structural actions (`FOR_X_XS`, `IF_X_GT_ZERO`, `ACC_ADD_X`, ...).
-- **Physics:** CPython 3.12.14 `compile()` and execution semantics.
-- **Reward:** compilation + fraction of tests passed.
-- **Baseline:** breadth-first search, so the environment can be validated before introducing a neural agent.
+```text
+problem + tests
+      ↓
+typed AST with holes
+      ↓
+sparse state expansion
+      ↓
+recurrent action history
+      ↓
+action selection
+      ↓
+CPython 3.12.14 compile/execute
+      ↓
+test reward
+      └────────────→ eligibility traces
+```
 
-The agent never emits arbitrary Python text. The environment owns the grammar and renders source from legal actions. That keeps syntax knowledge out of the model and makes the search space measurable.
+Mosca does not currently simulate the full fly connectome. The first neural component is deliberately small: sparse expansion coding plus recurrent context and reward-modulated eligibility traces.
 
-## Pinned runtime
+## Pinned Python world
 
-Mosca targets **CPython 3.12.14**. `.python-version` and `Dockerfile` pin it. Benchmark runs should use the pinned runtime.
+The environment is fixed to **CPython 3.12.14**.
+
+`mosca rules` inspects the actual `ast` classes in that runtime, verifies the structural fields used by Mosca and emits a deterministic rule-manifest fingerprint. The model is not trained on Python documentation.
+
+The generic v1 grammar has 28 productions covering statement lists, assignment, augmented assignment, `for`, `if`, `return`, names, integer constants, arithmetic, comparisons and subscripting.
+
+The action vocabulary is grammatical (`STMT:FOR`, `EXPR:COMPARE`, `CMPOP:GT`, ...), not prewritten source statements.
 
 ## Run
 
@@ -25,46 +41,35 @@ Mosca targets **CPython 3.12.14**. `.python-version` and `Dockerfile` pin it. Be
 python -m pip install -e .[dev]
 pytest -q
 mosca runtime
-mosca solve sum_list --depth 7
-mosca solve count_positive --depth 9
-mosca solve max_list --depth 9
+mosca rules
+mosca ast-reference all
+mosca benchmark --episodes 200 --seed 42
 ```
 
-Or with Docker:
+## Two environments
 
-```bash
-docker build -t mosca .
-docker run --rm mosca
-```
+`mosca.env.PythonMaze` is the original hand-shaped v0 environment and remains as a deterministic baseline.
 
-## Current action vocabulary
+`mosca.ast_env.ASTMaze` is the v1 environment. It starts with a typed `stmt_list` hole and repeatedly expands the first unresolved hole. A completed tree is converted to a real `ast.Module`, compiled by CPython and evaluated against tests.
 
-```text
-ACC_ZERO       acc = 0
-ACC_FIRST      acc = xs[0]
-FOR_X_XS       for x in xs:
-IF_X_GT_ACC    if x > acc:
-IF_X_GT_ZERO   if x > 0:
-ACC_ADD_X      acc += x
-ACC_ADD_ONE    acc += 1
-ACC_SET_X      acc = x
-END_BLOCK      leave current block
-RETURN_ACC     return acc
-COMMIT         compile + run tests
-```
+Reference programs are stored only to verify that the generic grammar can express known solutions. They are not used by the from-scratch benchmark.
 
-This is intentionally tiny. v0 validates the navigation formulation; it is not intended to provide broad Python coverage.
+## Fly learner v0
 
-## Roadmap
+`SparseFlyAgent` contains deterministic sparse expansion coding, short recurrent action history, action-local value weights, TD(lambda)-style eligibility traces and reward modulation from compiler/test results.
 
-1. Validate the maze/oracle against deterministic search.
-2. Replace handcrafted statements with a typed AST-hole grammar derived from CPython's AST/grammar definitions.
-3. Add a sparse state encoder analogous to expansion coding in the mushroom body.
-4. Add recurrent navigation state analogous in function, not literal anatomy, to central-complex navigation.
-5. Add reward-modulated eligibility traces from compiler/test feedback.
-6. Compare random search, BFS/MCTS, GRU, small Transformer and the sparse recurrent agent on identical tasks.
-7. Only after the synthetic architecture is measurable, map selected FlyWire motifs into the network topology.
+This is a functional analogue of a few useful insect-learning ideas, not a claim of biological equivalence.
 
-## Design rule
+## Current experiment
 
-Do not train the agent on Python documentation unless an experiment specifically tests that condition. Language syntax and structural validity belong to the environment. The agent should learn which legal transformations solve a task.
+The repository compares random exploration, the legacy BFS baseline and sparse reward-learning on the generic AST maze.
+
+The first generic tasks are `sum_list`, `count_positive`, and `max_list`. Their reference trajectories require 18-26 grammar decisions, making sparse terminal reward substantially harder than the original hand-shaped maze.
+
+## Next milestones
+
+1. Add curriculum or intermediate reward without leaking target source code.
+2. Add macro-actions learned from repeated successful subtrees.
+3. Generate larger hidden task suites procedurally.
+4. Compare MCTS, GRU and a small Transformer on exactly the same grammar.
+5. Replace synthetic sparse/recurrent connectivity with selected FlyWire-derived motifs only if controlled baselines justify it.

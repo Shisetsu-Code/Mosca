@@ -3,22 +3,61 @@ from __future__ import annotations
 import argparse
 import json
 
+from .ast_env import ASTMaze
+from .benchmark import benchmark_json
+from .grammar import rule_manifest
+from .reference import REFERENCE_ACTIONS
 from .runtime import runtime_status
 from .search import bfs_solve
 from .tasks import TASKS
+
+
+def _run_reference(name: str) -> dict:
+    env = ASTMaze(TASKS[name], max_steps=64)
+    for action in REFERENCE_ACTIONS[name]:
+        env.step(action)
+    evaluation = env.last_evaluation
+    assert evaluation is not None
+    return {
+        "task": name,
+        "actions": len(REFERENCE_ACTIONS[name]),
+        "compiled": evaluation.compiled,
+        "score": evaluation.score,
+        "source": env.source(),
+    }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="mosca")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("runtime")
-    solve = sub.add_parser("solve")
+    sub.add_parser("rules")
+
+    solve = sub.add_parser("solve", help="legacy hand-shaped maze baseline")
     solve.add_argument("task", choices=sorted(TASKS))
     solve.add_argument("--depth", type=int, default=10)
+
+    ast_ref = sub.add_parser("ast-reference", help="replay a known solution through the generic AST grammar")
+    ast_ref.add_argument("task", choices=["all", *sorted(TASKS)])
+
+    bench = sub.add_parser("benchmark", help="random vs sparse fly learner on the generic AST maze")
+    bench.add_argument("--episodes", type=int, default=200)
+    bench.add_argument("--seed", type=int, default=0)
+
     args = parser.parse_args()
 
     if args.command == "runtime":
         print(json.dumps(runtime_status(), indent=2))
+        return
+    if args.command == "rules":
+        print(json.dumps(rule_manifest(), indent=2, sort_keys=True))
+        return
+    if args.command == "ast-reference":
+        names = sorted(TASKS) if args.task == "all" else [args.task]
+        print(json.dumps([_run_reference(name) for name in names], indent=2))
+        return
+    if args.command == "benchmark":
+        print(benchmark_json(args.episodes, args.seed))
         return
 
     result = bfs_solve(TASKS[args.task], max_depth=args.depth)

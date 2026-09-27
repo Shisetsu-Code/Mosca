@@ -15,6 +15,9 @@ jobs:
       - run: python -m pip install -e .[dev]
       - run: pytest -q
       - run: mosca runtime
+      - run: mosca rules
+      - run: mosca ast-reference all
       - run: mosca solve sum_list --depth 7
       - run: mosca solve count_positive --depth 9
       - run: mosca solve max_list --depth 9
+      - run: mosca benchmark --episodes 50 --seed 42
