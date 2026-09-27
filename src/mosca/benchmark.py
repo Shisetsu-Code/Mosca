@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 
 from .ast_env import ASTMaze
 from .fly import FlyConfig, SparseFlyAgent
+from .motor_env import OracleCounter
 from .tasks import TASKS, TRANSFER_TASKS, Task
 
 
@@ -231,10 +232,15 @@ def _motor_config() -> FlyConfig:
     )
 
 
-def _learn_motor_episode(agent: SparseFlyAgent, task: Task, max_steps: int = 8) -> tuple[float, float]:
+def _learn_motor_episode(
+    agent: SparseFlyAgent,
+    task: Task,
+    max_steps: int = 8,
+    counter: OracleCounter | None = None,
+) -> tuple[float, float]:
     from .motor_env import MotorMaze
 
-    env = MotorMaze(task, max_steps=max_steps)
+    env = MotorMaze(task, max_steps=max_steps, counter=counter)
     agent.begin_episode()
     observation = env.observe()
     while not env.done:
@@ -279,23 +285,34 @@ def motor_multiseed(episodes: int = 200, seeds: tuple[int, ...] = (0, 1, 2)) -> 
     return {"episodes": episodes, "seeds": list(seeds), "summary": summary, "runs": runs}
 
 
-def _adapt_summary(agent: SparseFlyAgent, task: Task, episodes: int) -> dict:
+def _adapt_summary(
+    agent: SparseFlyAgent,
+    task: Task,
+    episodes: int,
+    counter: OracleCounter | None = None,
+) -> dict:
+    counter = counter if counter is not None else OracleCounter()
     first_generalized = None
+    first_generalized_oracle = None
     generalized = 0
     solved = 0
     for episode in range(1, episodes + 1):
-        train_score, hidden_score = _learn_motor_episode(agent, task)
+        train_score, hidden_score = _learn_motor_episode(agent, task, counter=counter)
         if train_score == 1.0:
             solved += 1
         if hidden_score == 1.0:
             generalized += 1
-            first_generalized = first_generalized or episode
+            if first_generalized is None:
+                first_generalized = episode
+                first_generalized_oracle = counter.snapshot()
     return {
         "episodes": episodes,
         "solved": solved,
         "generalized": generalized,
         "first_generalized": first_generalized,
         "parameters": agent.parameter_count(),
+        "oracle": counter.snapshot(),
+        "oracle_at_first_generalized": first_generalized_oracle,
     }
 
 
@@ -310,19 +327,31 @@ def transfer_benchmark(
     target = TRANSFER_TASKS["sum_positive"]
 
     pretrained = SparseFlyAgent(_motor_config(), seed=seed)
+    pretrain_counter = OracleCounter()
     for episode in range(pretrain_episodes):
-        _learn_motor_episode(pretrained, sources[episode % len(sources)])
+        _learn_motor_episode(
+            pretrained,
+            sources[episode % len(sources)],
+            counter=pretrain_counter,
+        )
 
     scratch = SparseFlyAgent(_motor_config(), seed=seed)
     transfer_zero_shot = _zero_shot_summary(copy.deepcopy(pretrained), target)
     scratch_zero_shot = _zero_shot_summary(copy.deepcopy(scratch), target)
-    transfer = _adapt_summary(pretrained, target, adapt_episodes)
-    baseline = _adapt_summary(scratch, target, adapt_episodes)
+    transfer_counter = OracleCounter()
+    scratch_counter = OracleCounter()
+    transfer = _adapt_summary(
+        pretrained, target, adapt_episodes, counter=transfer_counter
+    )
+    baseline = _adapt_summary(
+        scratch, target, adapt_episodes, counter=scratch_counter
+    )
     return {
         "seed": seed,
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
         "target": target.name,
+        "pretrain_oracle": pretrain_counter.snapshot(),
         "transfer_zero_shot": transfer_zero_shot,
         "scratch_zero_shot": scratch_zero_shot,
         "transfer": transfer,
@@ -347,15 +376,36 @@ def transfer_multiseed(
             for run in runs
             if run[key]["first_generalized"] is not None
         ]
+        oracle_first = [
+            run[key]["oracle_at_first_generalized"]
+            for run in runs
+            if run[key]["oracle_at_first_generalized"] is not None
+        ]
         return {
             "seed_successes": sum(run[key]["generalized"] > 0 for run in runs),
             "total_generalized": sum(run[key]["generalized"] for run in runs),
             "mean_first_generalized": (sum(first) / len(first)) if first else None,
             "best_first_generalized": min(first) if first else None,
+            "mean_visible_oracle_calls_at_first_generalized": (
+                sum(x["visible_oracle_calls"] for x in oracle_first) / len(oracle_first)
+                if oracle_first else None
+            ),
+            "mean_visible_case_executions_at_first_generalized": (
+                sum(x["visible_case_executions"] for x in oracle_first) / len(oracle_first)
+                if oracle_first else None
+            ),
         }
 
     transfer = aggregate("transfer")
     scratch = aggregate("scratch")
+    pretrain_oracle = {
+        "mean_visible_oracle_calls": (
+            sum(run["pretrain_oracle"]["visible_oracle_calls"] for run in runs) / len(runs)
+        ),
+        "mean_visible_case_executions": (
+            sum(run["pretrain_oracle"]["visible_case_executions"] for run in runs) / len(runs)
+        ),
+    }
     zero_shot = {
         "transfer_seed_successes": sum(run["transfer_zero_shot"]["generalized"] > 0 for run in runs),
         "scratch_seed_successes": sum(run["scratch_zero_shot"]["generalized"] > 0 for run in runs),
@@ -385,6 +435,7 @@ def transfer_multiseed(
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
         "seeds": list(seeds),
+        "pretrain_oracle": pretrain_oracle,
         "transfer": transfer,
         "scratch": scratch,
         "zero_shot": zero_shot,
@@ -401,13 +452,14 @@ def transfer_multiseed(
 def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 1) -> dict:
     from .motor_env import MotorMaze
 
+    counter = OracleCounter()
     solved = 0
     generalized = 0
     best_train = 0.0
     best_hidden = 0.0
     examples: list[str] = []
     for _ in range(episodes):
-        env = MotorMaze(task, max_steps=8)
+        env = MotorMaze(task, max_steps=8, counter=counter)
         agent.begin_episode()
         observation = env.observe()
         while not env.done:
@@ -433,4 +485,5 @@ def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 1) -> 
         "best_train_score": best_train,
         "best_hidden_score": best_hidden,
         "example_sources": examples,
+        "oracle": counter.snapshot(),
     }

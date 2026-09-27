@@ -4,7 +4,7 @@ import math
 import random
 from dataclasses import asdict, dataclass
 
-from .motor_env import MotorMaze
+from .motor_env import MotorMaze, OracleCounter
 from .tasks import TASKS, TRANSFER_TASKS, Task
 
 
@@ -18,10 +18,21 @@ class MCTSResult:
     best_hidden_score: float
     actions: tuple[str, ...] | None
     source: str | None
+    visible_oracle_calls: int
+    visible_case_executions: int
+    hidden_oracle_calls: int
+    hidden_case_executions: int
+    visible_oracle_calls_at_first_generalizing: int | None
+    visible_case_executions_at_first_generalizing: int | None
 
 
-def replay(task: Task, actions: tuple[str, ...], max_steps: int = 8) -> MotorMaze:
-    env = MotorMaze(task, max_steps=max_steps)
+def replay(
+    task: Task,
+    actions: tuple[str, ...],
+    max_steps: int = 8,
+    counter: OracleCounter | None = None,
+) -> MotorMaze:
+    env = MotorMaze(task, max_steps=max_steps, counter=counter)
     for action in actions:
         if env.done:
             break
@@ -60,11 +71,13 @@ def mcts_solve(
     best_hidden = 0.0
     first_visible_at: int | None = None
     first_generalizing_at: int | None = None
+    first_generalizing_oracle: dict[str, int] | None = None
+    counter = OracleCounter()
 
     for simulation in range(1, simulations + 1):
         prefix: tuple[str, ...] = ()
         path = [prefix]
-        env = replay(task, prefix, max_steps=max_steps)
+        env = replay(task, prefix, max_steps=max_steps, counter=counter)
 
         # Selection + one-node expansion.
         while not env.done:
@@ -83,7 +96,7 @@ def mcts_solve(
                 path.append(prefix)
                 visits.setdefault(prefix, 0)
                 values.setdefault(prefix, 0.0)
-                env = replay(task, prefix, max_steps=max_steps)
+                env = replay(task, prefix, max_steps=max_steps, counter=counter)
                 break
 
             parent_visits = max(1, visits.get(prefix, 0))
@@ -102,7 +115,7 @@ def mcts_solve(
             path.append(prefix)
             visits.setdefault(prefix, 0)
             values.setdefault(prefix, 0.0)
-            env = replay(task, prefix, max_steps=max_steps)
+            env = replay(task, prefix, max_steps=max_steps, counter=counter)
 
         # Random rollout from the expanded/selected state.
         rollout = prefix
@@ -131,6 +144,7 @@ def mcts_solve(
                 best_source = env.source()
             if hidden_score == 1.0 and first_generalizing_at is None:
                 first_generalizing_at = simulation
+                first_generalizing_oracle = counter.snapshot()
                 best_train = 1.0
                 best_hidden = 1.0
                 best_actions = rollout
@@ -151,6 +165,18 @@ def mcts_solve(
         best_hidden_score=best_hidden,
         actions=best_actions,
         source=best_source,
+        visible_oracle_calls=counter.visible_oracle_calls,
+        visible_case_executions=counter.visible_case_executions,
+        hidden_oracle_calls=counter.hidden_oracle_calls,
+        hidden_case_executions=counter.hidden_case_executions,
+        visible_oracle_calls_at_first_generalizing=(
+            first_generalizing_oracle["visible_oracle_calls"]
+            if first_generalizing_oracle else None
+        ),
+        visible_case_executions_at_first_generalizing=(
+            first_generalizing_oracle["visible_case_executions"]
+            if first_generalizing_oracle else None
+        ),
     )
 
 
@@ -181,9 +207,22 @@ def mcts_multiseed(
             for seed in seeds
         ]
         solved = [r.first_generalizing_at for r in results if r.first_generalizing_at is not None]
+        oracle_solved = [
+            r for r in results if r.visible_oracle_calls_at_first_generalizing is not None
+        ]
         per_task[name] = {
             "seed_successes": len(solved),
             "mean_first_generalizing_at": (sum(solved) / len(solved)) if solved else None,
+            "mean_visible_oracle_calls_at_first_generalizing": (
+                sum(r.visible_oracle_calls_at_first_generalizing for r in oracle_solved)
+                / len(oracle_solved)
+                if oracle_solved else None
+            ),
+            "mean_visible_case_executions_at_first_generalizing": (
+                sum(r.visible_case_executions_at_first_generalizing for r in oracle_solved)
+                / len(oracle_solved)
+                if oracle_solved else None
+            ),
             "best_first_generalizing_at": min(solved) if solved else None,
             "worst_first_generalizing_at": max(solved) if solved else None,
             "runs": [asdict(r) for r in results],

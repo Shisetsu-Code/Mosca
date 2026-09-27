@@ -1,4 +1,4 @@
-from mosca.motor_env import MotorMaze
+from mosca.motor_env import MotorMaze, OracleCounter
 from mosca.reference import MOTOR_REFERENCE_ACTIONS
 from mosca.tasks import TASKS
 
@@ -23,3 +23,23 @@ def test_goal_inhibition_closes_a_solved_program():
     assert env.valid_actions() == ("END",)
     env.step("END")
     assert env.valid_actions() == ("RETURN:acc",)
+
+
+
+def test_oracle_counter_separates_visible_and_hidden_work():
+    counter = OracleCounter()
+    env = MotorMaze(TASKS["sum_list"], max_steps=8, counter=counter)
+    for action in MOTOR_REFERENCE_ACTIONS["sum_list"]:
+        env.step(action)
+
+    visible = counter.snapshot()
+    assert visible["visible_oracle_calls"] > 0
+    assert visible["visible_case_executions"] > 0
+    assert visible["hidden_oracle_calls"] == 0
+    assert visible["hidden_case_executions"] == 0
+
+    env.evaluate_hidden()
+    hidden = counter.snapshot()
+    assert hidden["hidden_oracle_calls"] == 1
+    assert hidden["hidden_case_executions"] == len(TASKS["sum_list"].hidden_cases)
+    assert hidden["visible_oracle_calls"] == visible["visible_oracle_calls"]

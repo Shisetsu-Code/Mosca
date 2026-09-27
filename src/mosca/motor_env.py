@@ -22,6 +22,22 @@ class Evaluation:
 
 
 @dataclass
+class OracleCounter:
+    visible_oracle_calls: int = 0
+    visible_case_executions: int = 0
+    hidden_oracle_calls: int = 0
+    hidden_case_executions: int = 0
+
+    def snapshot(self) -> dict[str, int]:
+        return {
+            "visible_oracle_calls": self.visible_oracle_calls,
+            "visible_case_executions": self.visible_case_executions,
+            "hidden_oracle_calls": self.hidden_oracle_calls,
+            "hidden_case_executions": self.hidden_case_executions,
+        }
+
+
+@dataclass
 class Frame:
     kind: str
     body: list[ast.stmt]
@@ -37,9 +53,15 @@ class MotorMaze:
     CMPS = (">", "<", "==")
     CONSTS = (-1, 0, 1)
 
-    def __init__(self, task: Task, max_steps: int = 12):
+    def __init__(
+        self,
+        task: Task,
+        max_steps: int = 12,
+        counter: OracleCounter | None = None,
+    ):
         self.task = task
         self.max_steps = max_steps
+        self.counter = counter if counter is not None else OracleCounter()
         self.sensory = task_sensory_tokens(task)
         self.memory_concepts = task_memory_concepts(task)
         self.reset()
@@ -259,8 +281,18 @@ class MotorMaze:
     def source(self) -> str:
         return ast.unparse(self.module()) + "\n"
 
-    def _evaluate_root(self, root: list[ast.stmt], cases=None) -> Evaluation:
+    def _evaluate_root(
+        self,
+        root: list[ast.stmt],
+        cases=None,
+        *,
+        hidden: bool = False,
+    ) -> Evaluation:
         cases = self.task.cases if cases is None else cases
+        if hidden:
+            self.counter.hidden_oracle_calls += 1
+        else:
+            self.counter.visible_oracle_calls += 1
         fn = ast.FunctionDef(
             "solve",
             ast.arguments(
@@ -283,6 +315,10 @@ class MotorMaze:
         passed = 0
         error = None
         for case in cases:
+            if hidden:
+                self.counter.hidden_case_executions += 1
+            else:
+                self.counter.visible_case_executions += 1
             try:
                 got = solve(*case.args)
                 if got == case.expected:
@@ -299,4 +335,4 @@ class MotorMaze:
 
     def evaluate_hidden(self) -> Evaluation:
         cases = self.task.hidden_cases or self.task.cases
-        return self._evaluate_root(self.root, cases)
+        return self._evaluate_root(self.root, cases, hidden=True)
