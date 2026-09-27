@@ -55,8 +55,6 @@ class SparseEncoder:
 
 
 def action_components(action: str) -> tuple[str, ...]:
-    """Factor a motor action so learned parts can recombine on unseen tasks."""
-
     keys = [f"exact:{action}"]
     if action.startswith("SET:acc="):
         rhs = action.split("=", 1)[1]
@@ -89,7 +87,7 @@ def action_components(action: str) -> tuple[str, ...]:
 
 
 class SparseFlyAgent:
-    """Sparse recurrent TD(lambda) policy with optional slow synaptic consolidation."""
+    """Sparse recurrent TD(lambda) policy with two-timescale associative memory."""
 
     def __init__(self, config: FlyConfig | None = None, seed: int = 0):
         self.config = config or FlyConfig()
@@ -97,7 +95,7 @@ class SparseFlyAgent:
         self.rng = random.Random(seed)
         self.weights: dict[str, dict[int, float]] = defaultdict(dict)
         self.slow_weights: dict[str, dict[str, dict[int, float]]] = {}
-        self._active_context = "global"
+        self._active_memory_keys: tuple[str, ...] = ("ctx:global",)
         self.traces: dict[tuple[str, int], float] = {}
         self.history: deque[str] = deque(maxlen=self.config.history)
 
@@ -111,8 +109,17 @@ class SparseFlyAgent:
         raw = "\x1f".join(sensory).encode()
         return hashlib.blake2b(raw, digest_size=12, person=b"mosca-ctx").hexdigest()
 
+    @classmethod
+    def memory_keys(cls, observation: dict) -> tuple[str, ...]:
+        keys = [f"ctx:{cls.context_key(observation)}"]
+        keys.extend(f"concept:{x}" for x in observation.get("memory_concepts", ()))
+        return tuple(dict.fromkeys(keys))
+
     def features(self, observation: dict) -> tuple[int, ...]:
         return self.encoder.encode(observation, tuple(self.history))
+
+    def remember(self, action: str) -> None:
+        self.history.append(action)
 
     def q_fast(self, action: str, features: tuple[int, ...]) -> float:
         keys = action_components(action)
@@ -122,41 +129,58 @@ class SparseFlyAgent:
             total += sum(fast.get(i, 0.0) for i in features)
         return total / math.sqrt(max(1, len(features) * len(keys)))
 
-    def q(self, action: str, features: tuple[int, ...], context: str | None = None) -> float:
-        keys = action_components(action)
-        total = self.q_fast(action, features)
-        context = self._active_context if context is None else context
-        context_slow = self.slow_weights.get(context, {})
-        slow_total = 0.0
-        for key in keys:
-            slow = context_slow.get(key, {})
-            slow_total += sum(slow.get(i, 0.0) for i in features)
-        slow_total /= math.sqrt(max(1, len(features) * len(keys)))
-        return total + self.config.slow_mix * slow_total
+    def _slow_q(self, action: str, features: tuple[int, ...], memory_key: str) -> float:
+        action_keys = action_components(action)
+        table = self.slow_weights.get(memory_key, {})
+        total = 0.0
+        for action_key in action_keys:
+            slow = table.get(action_key, {})
+            total += sum(slow.get(i, 0.0) for i in features)
+        return total / math.sqrt(max(1, len(features) * len(action_keys)))
 
-    def choose(self, observation: dict, valid_actions: tuple[str, ...], *, explore: bool = True) -> tuple[str, tuple[int, ...]]:
+    def q(
+        self,
+        action: str,
+        features: tuple[int, ...],
+        memory_keys: tuple[str, ...] | None = None,
+    ) -> float:
+        total = self.q_fast(action, features)
+        memory_keys = self._active_memory_keys if memory_keys is None else memory_keys
+        if memory_keys:
+            slow_values = [self._slow_q(action, features, key) for key in memory_keys]
+            total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
+        return total
+
+    def choose(
+        self,
+        observation: dict,
+        valid_actions: tuple[str, ...],
+        *,
+        explore: bool = True,
+    ) -> tuple[str, tuple[int, ...]]:
         if not valid_actions:
             raise ValueError("no valid actions")
         features = self.features(observation)
-        self._active_context = self.context_key(observation)
+        self._active_memory_keys = self.memory_keys(observation)
         if explore and self.rng.random() < self.config.epsilon:
             return self.rng.choice(valid_actions), features
-        scored = [(self.q(a, features, self._active_context), self.rng.random(), a) for a in valid_actions]
+        scored = [(self.q(a, features), self.rng.random(), a) for a in valid_actions]
         return max(scored)[2], features
 
-    def _consolidate(self, context: str) -> None:
+    def _consolidate(self, memory_keys: tuple[str, ...]) -> None:
         rate = self.config.consolidation_rate
         if rate <= 0:
             return
-        context_table = self.slow_weights.setdefault(context, {})
-        for (model_key, index), eligibility in self.traces.items():
-            if eligibility == 0:
-                continue
-            fast = self.weights.get(model_key, {}).get(index, 0.0)
-            slow_table = context_table.setdefault(model_key, {})
-            slow = slow_table.get(index, 0.0)
-            gain = min(1.0, rate * abs(eligibility))
-            slow_table[index] = slow + gain * (fast - slow)
+        for memory_key in memory_keys:
+            memory_table = self.slow_weights.setdefault(memory_key, {})
+            for (model_key, index), eligibility in self.traces.items():
+                if eligibility == 0:
+                    continue
+                fast = self.weights.get(model_key, {}).get(index, 0.0)
+                slow_table = memory_table.setdefault(model_key, {})
+                slow = slow_table.get(index, 0.0)
+                gain = min(1.0, rate * abs(eligibility))
+                slow_table[index] = slow + gain * (fast - slow)
 
     def learn(
         self,
@@ -167,9 +191,7 @@ class SparseFlyAgent:
         next_actions: tuple[str, ...],
         done: bool,
     ) -> float:
-        context = self._active_context
-        # Fast plastic weights learn their own TD error. Contextual slow memory
-        # biases action selection but never enters the prediction error.
+        memory_keys = self._active_memory_keys
         q_now = self.q_fast(action, features)
         if done or not next_actions:
             target = reward
@@ -186,9 +208,9 @@ class SparseFlyAgent:
             else:
                 self.traces[key] = value
 
-        keys = action_components(action)
-        scale = 1.0 / math.sqrt(max(1, len(features) * len(keys)))
-        for model_key in keys:
+        action_keys = action_components(action)
+        scale = 1.0 / math.sqrt(max(1, len(features) * len(action_keys)))
+        for model_key in action_keys:
             for i in features:
                 trace_key = (model_key, i)
                 self.traces[trace_key] = self.traces.get(trace_key, 0.0) + scale
@@ -198,7 +220,7 @@ class SparseFlyAgent:
             table[index] = table.get(index, 0.0) + self.config.alpha * delta * eligibility
 
         if done and reward >= self.config.consolidation_threshold:
-            self._consolidate(context)
+            self._consolidate(memory_keys)
 
         self.history.append(action)
         return delta
@@ -209,8 +231,8 @@ class SparseFlyAgent:
     def slow_parameter_count(self) -> int:
         return sum(
             len(weights)
-            for context in self.slow_weights.values()
-            for weights in context.values()
+            for memory in self.slow_weights.values()
+            for weights in memory.values()
         )
 
     def parameter_count(self) -> int:
