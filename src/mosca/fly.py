@@ -103,6 +103,10 @@ class SparseFlyAgent:
     def features(self, observation: dict) -> tuple[int, ...]:
         return self.encoder.encode(observation, tuple(self.history))
 
+    def remember(self, action: str) -> None:
+        """Advance recurrent action history without changing weights."""
+        self.history.append(action)
+
     def q(self, action: str, features: tuple[int, ...]) -> float:
         keys = action_components(action)
         total = 0.0

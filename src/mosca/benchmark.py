@@ -310,6 +310,8 @@ def transfer_benchmark(
         _learn_motor_episode(pretrained, sources[episode % len(sources)])
 
     scratch = SparseFlyAgent(_motor_config(), seed=seed)
+    transfer_zero_shot = _zero_shot_summary(pretrained, target)
+    scratch_zero_shot = _zero_shot_summary(scratch, target)
     transfer = _adapt_summary(pretrained, target, adapt_episodes)
     baseline = _adapt_summary(scratch, target, adapt_episodes)
     return {
@@ -317,6 +319,8 @@ def transfer_benchmark(
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
         "target": target.name,
+        "transfer_zero_shot": transfer_zero_shot,
+        "scratch_zero_shot": scratch_zero_shot,
         "transfer": transfer,
         "scratch": baseline,
     }
@@ -348,6 +352,12 @@ def transfer_multiseed(
 
     transfer = aggregate("transfer")
     scratch = aggregate("scratch")
+    zero_shot = {
+        "transfer_seed_successes": sum(run["transfer_zero_shot"]["generalized"] > 0 for run in runs),
+        "scratch_seed_successes": sum(run["scratch_zero_shot"]["generalized"] > 0 for run in runs),
+        "transfer_total_generalized": sum(run["transfer_zero_shot"]["generalized"] for run in runs),
+        "scratch_total_generalized": sum(run["scratch_zero_shot"]["generalized"] for run in runs),
+    }
     paired_wins = 0
     paired_losses = 0
     paired_ties = 0
@@ -373,10 +383,55 @@ def transfer_multiseed(
         "seeds": list(seeds),
         "transfer": transfer,
         "scratch": scratch,
+        "zero_shot": zero_shot,
         "paired": {
             "transfer_wins": paired_wins,
             "scratch_wins": paired_losses,
             "ties": paired_ties,
         },
         "runs": runs,
+    }
+
+
+
+def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 32) -> dict:
+    from .motor_env import MotorMaze
+
+    solved = 0
+    generalized = 0
+    best_train = 0.0
+    best_hidden = 0.0
+    examples: list[str] = []
+
+    for _ in range(episodes):
+        env = MotorMaze(task, max_steps=8)
+        agent.begin_episode()
+        observation = env.observe()
+        while not env.done:
+            actions = env.valid_actions()
+            if not actions:
+                break
+            action, _ = agent.choose(observation, actions, explore=False)
+            next_observation, _, _, _ = env.step(action)
+            agent.remember(action)
+            observation = next_observation
+
+        train_score = env.last_evaluation.score if env.last_evaluation else 0.0
+        hidden_score = env.evaluate_hidden().score if train_score == 1.0 else 0.0
+        best_train = max(best_train, train_score)
+        best_hidden = max(best_hidden, hidden_score)
+        if train_score == 1.0:
+            solved += 1
+        if hidden_score == 1.0:
+            generalized += 1
+            if len(examples) < 3:
+                examples.append(env.source())
+
+    return {
+        "episodes": episodes,
+        "solved": solved,
+        "generalized": generalized,
+        "best_train_score": best_train,
+        "best_hidden_score": best_hidden,
+        "example_sources": examples,
     }

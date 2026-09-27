@@ -19,3 +19,11 @@ def test_transfer_benchmark_smoke():
     assert result["target"] == "sum_positive"
     assert result["transfer"]["episodes"] == 3
     assert result["scratch"]["episodes"] == 3
+
+
+
+def test_zero_shot_fields_are_reported():
+    result = transfer_benchmark(pretrain_episodes=6, adapt_episodes=3, seed=11)
+    assert "transfer_zero_shot" in result
+    assert "scratch_zero_shot" in result
+    assert result["transfer_zero_shot"]["episodes"] == 32
