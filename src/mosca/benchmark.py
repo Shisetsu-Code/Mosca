@@ -84,3 +84,111 @@ def benchmark(episodes: int = 200, seed: int = 0) -> dict:
 
 def benchmark_json(episodes: int = 200, seed: int = 0) -> str:
     return json.dumps(benchmark(episodes, seed), indent=2, sort_keys=True)
+
+
+def _episode_random_motor(task: Task, rng: random.Random, max_steps: int = 8):
+    from .motor_env import MotorMaze
+
+    env = MotorMaze(task, max_steps=max_steps)
+    while not env.done:
+        actions = env.valid_actions()
+        if not actions:
+            break
+        env.step(rng.choice(actions))
+    score = env.last_evaluation.score if env.last_evaluation else 0.0
+    return score, env
+
+
+def random_motor_baseline(task: Task, episodes: int = 300, seed: int = 0, max_steps: int = 8) -> dict:
+    rng = random.Random(seed)
+    solved = 0
+    first = None
+    best = 0.0
+    scores: list[float] = []
+    shortest_steps = None
+    shortest_source = None
+    for episode in range(1, episodes + 1):
+        score, env = _episode_random_motor(task, rng, max_steps)
+        scores.append(score)
+        best = max(best, score)
+        if score == 1.0:
+            solved += 1
+            first = first or episode
+            steps = len(env.actions)
+            if shortest_steps is None or steps < shortest_steps:
+                shortest_steps = steps
+                shortest_source = env.source()
+    return {
+        "episodes": episodes,
+        "solved": solved,
+        "first_solved": first,
+        "best_score": best,
+        "mean_terminal_score": sum(scores) / max(1, len(scores)),
+        "shortest_solution_steps": shortest_steps,
+        "shortest_solution_source": shortest_source,
+    }
+
+
+def train_motor_fly(task: Task, episodes: int = 300, seed: int = 0, max_steps: int = 8) -> dict:
+    from .motor_env import MotorMaze
+
+    config = FlyConfig(
+        epsilon=0.30,
+        alpha=0.065,
+        gamma=0.98,
+        trace_decay=0.93,
+        history=8,
+    )
+    agent = SparseFlyAgent(config, seed=seed)
+    solved = 0
+    first = None
+    best = 0.0
+    scores: list[float] = []
+    shortest_steps = None
+    shortest_source = None
+
+    for episode in range(1, episodes + 1):
+        env = MotorMaze(task, max_steps=max_steps)
+        agent.begin_episode()
+        observation = env.observe()
+        while not env.done:
+            actions = env.valid_actions()
+            if not actions:
+                break
+            action, features = agent.choose(observation, actions, explore=True)
+            next_observation, reward, done, _ = env.step(action)
+            agent.learn(features, action, reward, next_observation, env.valid_actions(), done)
+            observation = next_observation
+
+        score = env.last_evaluation.score if env.last_evaluation else 0.0
+        scores.append(score)
+        best = max(best, score)
+        if score == 1.0:
+            solved += 1
+            first = first or episode
+            steps = len(env.actions)
+            if shortest_steps is None or steps < shortest_steps:
+                shortest_steps = steps
+                shortest_source = env.source()
+
+    return {
+        "episodes": episodes,
+        "solved": solved,
+        "first_solved": first,
+        "best_score": best,
+        "mean_terminal_score": sum(scores) / max(1, len(scores)),
+        "parameters": agent.parameter_count(),
+        "shortest_solution_steps": shortest_steps,
+        "shortest_solution_source": shortest_source,
+    }
+
+
+def motor_benchmark(episodes: int = 300, seed: int = 42) -> dict:
+    result = {"episodes": episodes, "seed": seed, "tasks": {}}
+    for offset, (name, task) in enumerate(TASKS.items()):
+        task_seed = seed + offset
+        result["tasks"][name] = {
+            "random": random_motor_baseline(task, episodes=episodes, seed=task_seed),
+            "fly": train_motor_fly(task, episodes=episodes, seed=task_seed),
+        }
+    return result

@@ -21,3 +21,6 @@ jobs:
       - run: mosca solve count_positive --depth 9
       - run: mosca solve max_list --depth 9
       - run: mosca benchmark --episodes 50 --seed 42
+
+      - run: mosca motor-reference all
+      - run: mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved

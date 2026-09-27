@@ -1,75 +1,89 @@
 # Mosca
 
-Experimental program synthesis inspired by the navigation and reward-learning principles of *Drosophila*.
+Experimental program synthesis inspired by navigation and reward learning in *Drosophila*.
 
-The working hypothesis is that programming can be represented as navigation through a constrained state space instead of next-token prediction. Python syntax and structural legality belong to the environment; the learner only selects legal transitions.
+Mosca treats programming as navigation through a constrained state space. The learner does not emit arbitrary Python text: CPython owns syntax/AST legality, while the learner selects legal structural or semantic actions.
 
-## Current architecture
+## Runtime
 
-```text
+The world is pinned to **CPython 3.12.14**. The generic AST layer validates the actual runtime AST fields with \`mosca rules\`; Python documentation is not used as training data.
+
+## Architecture
+
+\`\`\`text
 problem + tests
       ↓
-typed AST with holes
+generic typed AST world
       ↓
-sparse state expansion
+semantic motor layer
       ↓
-recurrent action history
+sparse expansion + recurrent history
       ↓
 action selection
       ↓
-CPython 3.12.14 compile/execute
+CPython compile/execute
       ↓
-test reward
-      └────────────→ eligibility traces
-```
+test reward + eligibility traces
+      └───────────────────────────────┘
+\`\`\`
 
-Mosca does not currently simulate the full fly connectome. The first neural component is deliberately small: sparse expansion coding plus recurrent context and reward-modulated eligibility traces.
+There are three deliberately separate levels:
 
-## Pinned Python world
+1. \`PythonMaze\`: original hand-shaped baseline.
+2. \`ASTMaze\`: generic low-level grammar with typed holes.
+3. \`MotorMaze\`: hierarchical list-reduction curriculum using generated statement-sized motor primitives.
 
-The environment is fixed to **CPython 3.12.14**.
+The hierarchy matters. Low-level AST trajectories require roughly 18–26 decisions for the first tasks. The motor layer expresses the same solutions in 5 semantic decisions.
 
-`mosca rules` inspects the actual `ast` classes in that runtime, verifies the structural fields used by Mosca and emits a deterministic rule-manifest fingerprint. The model is not trained on Python documentation.
+## Motor primitives
 
-The generic v1 grammar has 28 productions covering statement lists, assignment, augmented assignment, `for`, `if`, `return`, names, integer constants, arithmetic, comparisons and subscripting.
+The v0 motor curriculum has one accumulator \`acc\`, input list \`xs\`, loop item \`x\`, comparisons against \`0\` or \`acc\`, and generated conditional updates:
 
-The action vocabulary is grammatical (`STMT:FOR`, `EXPR:COMPARE`, `CMPOP:GT`, ...), not prewritten source statements.
+\`\`\`text
+SET:acc=...
+FOR:x:xs
+AUG:acc+=...
+WHEN:<condition>:SETX
+WHEN:<condition>:INC1
+WHEN:<condition>:ADDX
+END
+RETURN:acc
+\`\`\`
+
+\`WHEN\` actions are generated compositionally from legal conditions and updates; there is no task-specific \`MAX\`, \`COUNT_POSITIVE\`, or \`SUM\` action.
+
+A provisional program is evaluated during navigation. When it already passes all training tests, goal inhibition freezes semantic changes and permits only block closing / return. This prevents a discovered solution from being destroyed by continued exploration.
+
+## Current benchmark
+
+Deterministic smoke benchmark: 300 episodes, seed 42, CPython 3.12.14.
+
+| Task | Random first solution | Fly first solution |
+|---|---:|---:|
+| \`sum_list\` | 64 | 147 |
+| \`count_positive\` | 253 | 53 |
+| \`max_list\` | none in 300 | 93 |
+
+This is an engineering smoke test, not a statistically robust scientific result. The important result is that the sparse/recurrent learner now reaches all three programs from scratch in the hierarchical environment. Broader seed sweeps and held-out tasks are the next validation step.
 
 ## Run
 
-```bash
+\`\`\`bash
 python -m pip install -e .[dev]
 pytest -q
+
 mosca runtime
 mosca rules
 mosca ast-reference all
-mosca benchmark --episodes 200 --seed 42
-```
-
-## Two environments
-
-`mosca.env.PythonMaze` is the original hand-shaped v0 environment and remains as a deterministic baseline.
-
-`mosca.ast_env.ASTMaze` is the v1 environment. It starts with a typed `stmt_list` hole and repeatedly expands the first unresolved hole. A completed tree is converted to a real `ast.Module`, compiled by CPython and evaluated against tests.
-
-Reference programs are stored only to verify that the generic grammar can express known solutions. They are not used by the from-scratch benchmark.
-
-## Fly learner v0
-
-`SparseFlyAgent` contains deterministic sparse expansion coding, short recurrent action history, action-local value weights, TD(lambda)-style eligibility traces and reward modulation from compiler/test results.
-
-This is a functional analogue of a few useful insect-learning ideas, not a claim of biological equivalence.
-
-## Current experiment
-
-The repository compares random exploration, the legacy BFS baseline and sparse reward-learning on the generic AST maze.
-
-The first generic tasks are `sum_list`, `count_positive`, and `max_list`. Their reference trajectories require 18-26 grammar decisions, making sparse terminal reward substantially harder than the original hand-shaped maze.
+mosca motor-reference all
+mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved
+\`\`\`
 
 ## Next milestones
 
-1. Add curriculum or intermediate reward without leaking target source code.
-2. Add macro-actions learned from repeated successful subtrees.
-3. Generate larger hidden task suites procedurally.
-4. Compare MCTS, GRU and a small Transformer on exactly the same grammar.
-5. Replace synthetic sparse/recurrent connectivity with selected FlyWire-derived motifs only if controlled baselines justify it.
+1. Split training and hidden evaluation cases so goal inhibition cannot overfit visible tests.
+2. Run multi-seed statistical comparisons against random search, BFS/MCTS and GRU.
+3. Learn reusable motor options instead of predefining the \`WHEN\` option family.
+4. Expand beyond reductions: filters, maps, nested loops, multiple variables and functions.
+5. Replace task-name input with structured I/O/task sensory features for transfer to unseen tasks.
+6. Only then test connectivity motifs derived from FlyWire against matched synthetic sparse networks.

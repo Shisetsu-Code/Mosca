@@ -22,3 +22,16 @@ REFERENCE_ACTIONS: dict[str, tuple[str, ...]] = {
         "LIST:CONS", "STMT:RETURN", "EXPR:NAME:acc", "LIST:END",
     ),
 }
+
+
+MOTOR_REFERENCE_ACTIONS: dict[str, tuple[str, ...]] = {
+    "sum_list": (
+        "SET:acc=0", "FOR:x:xs", "AUG:acc+=x", "END", "RETURN:acc",
+    ),
+    "count_positive": (
+        "SET:acc=0", "FOR:x:xs", "WHEN:x>0:INC1", "END", "RETURN:acc",
+    ),
+    "max_list": (
+        "SET:acc=xs[0]", "FOR:x:xs", "WHEN:x>acc:SETX", "END", "RETURN:acc",
+    ),
+}

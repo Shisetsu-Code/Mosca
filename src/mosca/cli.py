@@ -4,10 +4,11 @@ import argparse
 import json
 
 from .ast_env import ASTMaze
-from .benchmark import benchmark_json
+from .benchmark import benchmark_json, motor_benchmark
 from .grammar import rule_manifest
-from .reference import REFERENCE_ACTIONS
+from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
 from .runtime import runtime_status
+from .motor_env import MotorMaze
 from .search import bfs_solve
 from .tasks import TASKS
 
@@ -21,6 +22,21 @@ def _run_reference(name: str) -> dict:
     return {
         "task": name,
         "actions": len(REFERENCE_ACTIONS[name]),
+        "compiled": evaluation.compiled,
+        "score": evaluation.score,
+        "source": env.source(),
+    }
+
+
+def _run_motor_reference(name: str) -> dict:
+    env = MotorMaze(TASKS[name], max_steps=8)
+    for action in MOTOR_REFERENCE_ACTIONS[name]:
+        env.step(action)
+    evaluation = env.last_evaluation
+    assert evaluation is not None
+    return {
+        "task": name,
+        "actions": len(env.actions),
         "compiled": evaluation.compiled,
         "score": evaluation.score,
         "source": env.source(),
@@ -44,6 +60,14 @@ def main() -> None:
     bench.add_argument("--episodes", type=int, default=200)
     bench.add_argument("--seed", type=int, default=0)
 
+    motor_ref = sub.add_parser("motor-reference", help="replay short semantic motor solutions")
+    motor_ref.add_argument("task", choices=["all", *sorted(TASKS)])
+
+    motor_bench = sub.add_parser("motor-benchmark", help="random vs fly learner on the hierarchical motor maze")
+    motor_bench.add_argument("--episodes", type=int, default=300)
+    motor_bench.add_argument("--seed", type=int, default=42)
+    motor_bench.add_argument("--require-fly-solved", action="store_true")
+
     args = parser.parse_args()
 
     if args.command == "runtime":
@@ -58,6 +82,21 @@ def main() -> None:
         return
     if args.command == "benchmark":
         print(benchmark_json(args.episodes, args.seed))
+        return
+    if args.command == "motor-reference":
+        names = sorted(TASKS) if args.task == "all" else [args.task]
+        print(json.dumps([_run_motor_reference(name) for name in names], indent=2))
+        return
+    if args.command == "motor-benchmark":
+        result = motor_benchmark(args.episodes, args.seed)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        if args.require_fly_solved:
+            missing = [
+                name for name, data in result["tasks"].items()
+                if data["fly"]["solved"] == 0
+            ]
+            if missing:
+                raise SystemExit("fly failed to solve: " + ", ".join(missing))
         return
 
     result = bfs_solve(TASKS[args.task], max_depth=args.depth)
