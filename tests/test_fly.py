@@ -1,5 +1,5 @@
 from mosca.ast_env import ASTMaze
-from mosca.fly import FlyConfig, SparseEncoder, SparseFlyAgent, action_components
+from mosca.fly import FlyConfig, SparseEncoder, SparseFlyAgent, action_components, memory_action_components
 from mosca.motor_env import MotorMaze
 from mosca.tasks import TASKS, TRANSFER_TASKS
 
@@ -13,9 +13,15 @@ def test_sparse_encoder_is_deterministic_and_sparse():
     assert 0 < len(a) < 300
 
 
-def test_action_effects_bridge_plain_and_conditional_updates():
+def test_fast_action_factorization_stays_baseline_compatible():
     plain = set(action_components("AUG:acc+=x"))
-    conditional = set(action_components("WHEN:x>0:ADDX"))
+    assert "op:AUG" in plain
+    assert "effect:add" not in plain
+
+
+def test_memory_effects_bridge_plain_and_conditional_updates():
+    plain = set(memory_action_components("AUG:acc+=x"))
+    conditional = set(memory_action_components("WHEN:x>0:ADDX"))
     assert {"effect:add", "effect_rhs:x", "dst:acc"} <= plain & conditional
 
 
