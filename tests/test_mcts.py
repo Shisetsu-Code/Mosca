@@ -7,7 +7,8 @@ def test_mcts_result_is_reproducible():
     b = mcts_solve(TASKS["sum_list"], simulations=40, seed=7)
     assert a == b
     assert 0.0 <= a.best_train_score <= 1.0
-    assert 0.0 <= a.hidden_score <= 1.0
+    assert 0.0 <= a.best_hidden_score <= 1.0
+    assert a.simulations == 40
 
 
 def test_mcts_benchmark_contains_core_and_transfer_tasks():
@@ -25,3 +26,9 @@ def test_mcts_multiseed_shape():
     result = mcts_multiseed(simulations=3, seeds=(0, 1))
     assert result["seeds"] == [0, 1]
     assert len(result["tasks"]["sum_list"]["runs"]) == 2
+
+
+
+def test_hidden_does_not_stop_search():
+    result = mcts_solve(TASKS["sum_list"], simulations=50, seed=0)
+    assert result.simulations == 50
