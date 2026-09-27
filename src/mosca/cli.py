@@ -9,6 +9,7 @@ from .grammar import rule_manifest
 from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
 from .runtime import runtime_status
 from .motor_env import MotorMaze
+from .mcts import mcts_benchmark
 from .search import bfs_solve
 from .tasks import TASKS
 
@@ -83,6 +84,10 @@ def main() -> None:
     transfer_multi.add_argument("--adapt-episodes", type=int, default=250)
     transfer_multi.add_argument("--seeds", default="0,1,2,3,4")
 
+    mcts = sub.add_parser("mcts-benchmark", help="UCT baseline over the same MotorMaze")
+    mcts.add_argument("--simulations", type=int, default=500)
+    mcts.add_argument("--seed", type=int, default=42)
+
     args = parser.parse_args()
 
     if args.command == "runtime":
@@ -138,6 +143,9 @@ def main() -> None:
             indent=2,
             sort_keys=True,
         ))
+        return
+    if args.command == "mcts-benchmark":
+        print(json.dumps(mcts_benchmark(args.simulations, args.seed), indent=2, sort_keys=True))
         return
 
     result = bfs_solve(TASKS[args.task], max_depth=args.depth)
