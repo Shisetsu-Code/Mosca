@@ -320,3 +320,63 @@ def transfer_benchmark(
         "transfer": transfer,
         "scratch": baseline,
     }
+
+
+
+def transfer_multiseed(
+    pretrain_episodes: int = 600,
+    adapt_episodes: int = 250,
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+) -> dict:
+    runs = [
+        transfer_benchmark(pretrain_episodes, adapt_episodes, seed)
+        for seed in seeds
+    ]
+
+    def aggregate(key: str) -> dict:
+        first = [
+            run[key]["first_generalized"]
+            for run in runs
+            if run[key]["first_generalized"] is not None
+        ]
+        return {
+            "seed_successes": sum(run[key]["generalized"] > 0 for run in runs),
+            "total_generalized": sum(run[key]["generalized"] for run in runs),
+            "mean_first_generalized": (sum(first) / len(first)) if first else None,
+            "best_first_generalized": min(first) if first else None,
+        }
+
+    transfer = aggregate("transfer")
+    scratch = aggregate("scratch")
+    paired_wins = 0
+    paired_losses = 0
+    paired_ties = 0
+    for run in runs:
+        a = run["transfer"]["first_generalized"]
+        b = run["scratch"]["first_generalized"]
+        if a is None and b is None:
+            paired_ties += 1
+        elif a is None:
+            paired_losses += 1
+        elif b is None:
+            paired_wins += 1
+        elif a < b:
+            paired_wins += 1
+        elif a > b:
+            paired_losses += 1
+        else:
+            paired_ties += 1
+
+    return {
+        "pretrain_episodes": pretrain_episodes,
+        "adapt_episodes": adapt_episodes,
+        "seeds": list(seeds),
+        "transfer": transfer,
+        "scratch": scratch,
+        "paired": {
+            "transfer_wins": paired_wins,
+            "scratch_wins": paired_losses,
+            "ties": paired_ties,
+        },
+        "runs": runs,
+    }
