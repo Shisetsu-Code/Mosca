@@ -5,7 +5,8 @@ import copy
 import warnings
 from dataclasses import dataclass
 
-from .sensory import task_sensory_tokens\nfrom .tasks import Task
+from .sensory import task_sensory_tokens
+from .tasks import Task
 
 
 @dataclass(frozen=True)
