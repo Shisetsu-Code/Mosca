@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 
 from .ast_env import ASTMaze
 from .fly import FlyConfig, SparseFlyAgent
-from .tasks import TASKS, Task
+from .tasks import TASKS, TRANSFER_TASKS, Task
 
 
 @dataclass
@@ -214,3 +214,109 @@ def motor_benchmark(episodes: int = 300, seed: int = 42) -> dict:
             "fly": train_motor_fly(task, episodes=episodes, seed=task_seed),
         }
     return result
+
+
+
+def _motor_config() -> FlyConfig:
+    return FlyConfig(
+        epsilon=0.30,
+        alpha=0.065,
+        gamma=0.98,
+        trace_decay=0.93,
+        history=8,
+    )
+
+
+def _learn_motor_episode(agent: SparseFlyAgent, task: Task, max_steps: int = 8) -> tuple[float, float]:
+    from .motor_env import MotorMaze
+
+    env = MotorMaze(task, max_steps=max_steps)
+    agent.begin_episode()
+    observation = env.observe()
+    while not env.done:
+        actions = env.valid_actions()
+        if not actions:
+            break
+        action, features = agent.choose(observation, actions, explore=True)
+        next_observation, reward, done, _ = env.step(action)
+        agent.learn(features, action, reward, next_observation, env.valid_actions(), done)
+        observation = next_observation
+    train_score = env.last_evaluation.score if env.last_evaluation else 0.0
+    hidden_score = env.evaluate_hidden().score if train_score == 1.0 else 0.0
+    return train_score, hidden_score
+
+
+def motor_multiseed(episodes: int = 200, seeds: tuple[int, ...] = (0, 1, 2)) -> dict:
+    runs = []
+    for seed in seeds:
+        result = motor_benchmark(episodes=episodes, seed=seed)
+        runs.append(result)
+
+    summary: dict[str, dict] = {}
+    for name in TASKS:
+        fly_successes = sum(run["tasks"][name]["fly"]["generalized"] > 0 for run in runs)
+        random_successes = sum(run["tasks"][name]["random"]["generalized"] > 0 for run in runs)
+        fly_first = [
+            run["tasks"][name]["fly"]["first_generalized"]
+            for run in runs
+            if run["tasks"][name]["fly"]["first_generalized"] is not None
+        ]
+        random_first = [
+            run["tasks"][name]["random"]["first_generalized"]
+            for run in runs
+            if run["tasks"][name]["random"]["first_generalized"] is not None
+        ]
+        summary[name] = {
+            "fly_seed_successes": fly_successes,
+            "random_seed_successes": random_successes,
+            "fly_mean_first_generalized": (sum(fly_first) / len(fly_first)) if fly_first else None,
+            "random_mean_first_generalized": (sum(random_first) / len(random_first)) if random_first else None,
+        }
+    return {"episodes": episodes, "seeds": list(seeds), "summary": summary, "runs": runs}
+
+
+def _adapt_summary(agent: SparseFlyAgent, task: Task, episodes: int) -> dict:
+    first_generalized = None
+    generalized = 0
+    solved = 0
+    for episode in range(1, episodes + 1):
+        train_score, hidden_score = _learn_motor_episode(agent, task)
+        if train_score == 1.0:
+            solved += 1
+        if hidden_score == 1.0:
+            generalized += 1
+            first_generalized = first_generalized or episode
+    return {
+        "episodes": episodes,
+        "solved": solved,
+        "generalized": generalized,
+        "first_generalized": first_generalized,
+        "parameters": agent.parameter_count(),
+    }
+
+
+def transfer_benchmark(
+    pretrain_episodes: int = 300,
+    adapt_episodes: int = 200,
+    seed: int = 42,
+) -> dict:
+    """Pretrain on core tasks, then adapt to a compositional unseen task."""
+
+    sources = tuple(TASKS.values())
+    target = TRANSFER_TASKS["sum_positive"]
+
+    pretrained = SparseFlyAgent(_motor_config(), seed=seed)
+    for episode in range(pretrain_episodes):
+        _learn_motor_episode(pretrained, sources[episode % len(sources)])
+
+    scratch = SparseFlyAgent(_motor_config(), seed=seed)
+    transfer = _adapt_summary(pretrained, target, adapt_episodes)
+    baseline = _adapt_summary(scratch, target, adapt_episodes)
+    return {
+        "seed": seed,
+        "pretrain_episodes": pretrain_episodes,
+        "adapt_episodes": adapt_episodes,
+        "target": target.name,
+        "transfer": transfer,
+        "scratch": baseline,
+    }

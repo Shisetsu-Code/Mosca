@@ -1,19 +1,35 @@
 from mosca.ast_env import ASTMaze
-from mosca.fly import SparseEncoder, SparseFlyAgent
+from mosca.fly import SparseEncoder, SparseFlyAgent, action_components
+from mosca.motor_env import MotorMaze
 from mosca.tasks import TASKS
 
 
 def test_sparse_encoder_is_deterministic_and_sparse():
-    obs = ASTMaze(TASKS["sum_list"]).observe()
+    obs = MotorMaze(TASKS["sum_list"]).observe()
     enc = SparseEncoder(width=1024, hashes_per_token=3)
     a = enc.encode(obs)
     b = enc.encode(obs)
     assert a == b
-    assert 0 < len(a) < 100
+    assert 0 < len(a) < 300
     assert all(0 <= i < 1024 for i in a)
 
 
-def test_fly_agent_updates_local_weights():
+def test_task_name_is_not_in_motor_observation():
+    obs = MotorMaze(TASKS["sum_list"]).observe()
+    assert "task" not in obs
+    assert obs["sensory"]
+    assert all("sum_list" not in token for token in obs["sensory"])
+
+
+def test_action_factorization_exposes_reusable_parts():
+    parts = action_components("WHEN:x>0:ADDX")
+    assert "op:WHEN" in parts
+    assert "cmp:>" in parts
+    assert "cond_rhs:0" in parts
+    assert "update:ADDX" in parts
+
+
+def test_fly_agent_updates_factor_weights():
     env = ASTMaze(TASKS["sum_list"])
     agent = SparseFlyAgent(seed=1)
     agent.begin_episode()

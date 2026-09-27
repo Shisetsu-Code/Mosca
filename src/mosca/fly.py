@@ -34,12 +34,13 @@ class SparseEncoder:
 
     def encode(self, observation: dict, history: tuple[str, ...] = ()) -> tuple[int, ...]:
         tokens = [
-            f"task:{observation.get('task')}",
             f"hole:{observation.get('first_hole')}",
             f"holes:{min(int(observation.get('holes', 0)), 12)}",
             f"nodes:{min(int(observation.get('nodes', 0)) // 2, 16)}",
             f"steps:{min(int(observation.get('steps', 0)) // 3, 16)}",
         ]
+        for token in observation.get("sensory", ()):
+            tokens.append(f"sense:{token}")
         for tag, count in sorted(observation.get("tags", {}).items()):
             tokens.append(f"tag:{tag}:{min(int(count), 4)}")
         for pos, action in enumerate(reversed(history)):
@@ -48,6 +49,40 @@ class SparseEncoder:
         for token in tokens:
             active.update(self._indices(token))
         return tuple(sorted(active))
+
+
+def action_components(action: str) -> tuple[str, ...]:
+    """Factor a motor action so learned parts can recombine on unseen tasks."""
+
+    keys = [f"exact:{action}"]
+    if action.startswith("SET:acc="):
+        rhs = action.split("=", 1)[1]
+        rhs_kind = "const" if rhs.lstrip("-").isdigit() else "input" if rhs.startswith("xs") else "var"
+        keys += ("op:SET", "dst:acc", f"rhs_kind:{rhs_kind}", f"rhs:{rhs}")
+    elif action.startswith("AUG:acc"):
+        rest = action[len("AUG:acc"):]
+        symbol = rest[0]
+        rhs = rest[2:]
+        keys += ("op:AUG", "dst:acc", f"arith:{symbol}", f"rhs:{rhs}")
+    elif action == "FOR:x:xs":
+        keys += ("op:FOR", "iter:x", "source:xs")
+    elif action.startswith("WHEN:"):
+        payload = action[len("WHEN:"):]
+        cond, update = payload.rsplit(":", 1)
+        symbol = "==" if "==" in cond else ">" if ">" in cond else "<"
+        left, right = cond.split(symbol, 1)
+        keys += (
+            "op:WHEN",
+            f"lhs:{left}",
+            f"cmp:{symbol}",
+            f"cond_rhs:{right}",
+            f"update:{update}",
+        )
+    elif action == "END":
+        keys += ("op:END",)
+    elif action.startswith("RETURN:"):
+        keys += ("op:RETURN", f"rhs:{action.split(':', 1)[1]}")
+    return tuple(keys)
 
 
 class SparseFlyAgent:
@@ -69,8 +104,12 @@ class SparseFlyAgent:
         return self.encoder.encode(observation, tuple(self.history))
 
     def q(self, action: str, features: tuple[int, ...]) -> float:
-        weights = self.weights.get(action, {})
-        return sum(weights.get(i, 0.0) for i in features) / math.sqrt(max(1, len(features)))
+        keys = action_components(action)
+        total = 0.0
+        for key in keys:
+            weights = self.weights.get(key, {})
+            total += sum(weights.get(i, 0.0) for i in features)
+        return total / math.sqrt(max(1, len(features) * len(keys)))
 
     def choose(self, observation: dict, valid_actions: tuple[str, ...], *, explore: bool = True) -> tuple[str, tuple[int, ...]]:
         if not valid_actions:
@@ -106,12 +145,15 @@ class SparseFlyAgent:
             else:
                 self.traces[key] = value
 
-        scale = 1.0 / math.sqrt(max(1, len(features)))
-        for i in features:
-            self.traces[(action, i)] = self.traces.get((action, i), 0.0) + scale
+        keys = action_components(action)
+        scale = 1.0 / math.sqrt(max(1, len(features) * len(keys)))
+        for model_key in keys:
+            for i in features:
+                trace_key = (model_key, i)
+                self.traces[trace_key] = self.traces.get(trace_key, 0.0) + scale
 
-        for (trace_action, index), eligibility in self.traces.items():
-            table = self.weights[trace_action]
+        for (model_key, index), eligibility in self.traces.items():
+            table = self.weights[model_key]
             table[index] = table.get(index, 0.0) + self.config.alpha * delta * eligibility
 
         self.history.append(action)

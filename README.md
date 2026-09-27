@@ -2,16 +2,18 @@
 
 Experimental program synthesis inspired by navigation and reward learning in *Drosophila*.
 
-Mosca treats programming as navigation through a constrained state space. The learner does not emit arbitrary Python text: CPython owns syntax/AST legality, while the learner selects legal structural or semantic actions.
+Mosca treats programming as navigation through a constrained state space. The learner never writes arbitrary Python text: CPython owns syntax/AST legality, while the learner selects legal structural or semantic actions.
 
 ## Runtime
 
-The world is pinned to **CPython 3.12.14**. The generic AST layer validates the actual runtime AST fields with \`mosca rules\`; Python documentation is not used as training data.
+The world is pinned to **CPython 3.12.14**. Python documentation is not used as model training data.
 
 ## Architecture
 
-\`\`\`text
-problem + tests
+```text
+visible I/O examples
+      ↓
+sensory signature (no task name)
       ↓
 generic typed AST world
       ↓
@@ -19,70 +21,66 @@ semantic motor layer
       ↓
 sparse expansion + recurrent history
       ↓
-action selection
+factorized action policy
       ↓
 CPython compile/execute
       ↓
 test reward + eligibility traces
-      └───────────────────────────────┘
-\`\`\`
+```
 
-There are three deliberately separate levels:
+The current learner no longer receives `sum_list`, `max_list`, etc. as neural input. It receives a deterministic sensory sketch derived only from visible input/output examples: lengths, signs, low-order numeric buckets, and relations such as equality with aggregate statistics.
 
-1. \`PythonMaze\`: original hand-shaped baseline.
-2. \`ASTMaze\`: generic low-level grammar with typed holes.
-3. \`MotorMaze\`: hierarchical list-reduction curriculum using generated statement-sized motor primitives.
+Motor actions are also factorized. For example:
 
-The hierarchy matters. Low-level AST trajectories require roughly 18–26 decisions for the first tasks. The motor layer expresses the same solutions in 5 semantic decisions.
+```text
+WHEN:x>0:ADDX
+```
 
-## Motor primitives
+is represented through reusable components such as `WHEN`, `x`, `>`, `0`, and `ADDX`, in addition to the exact action. This allows experience from different programs to share weights.
 
-The v0 motor curriculum has one accumulator \`acc\`, input list \`xs\`, loop item \`x\`, comparisons against \`0\` or \`acc\`, and generated conditional updates:
+## Environments
 
-\`\`\`text
-SET:acc=...
-FOR:x:xs
-AUG:acc+=...
-WHEN:<condition>:SETX
-WHEN:<condition>:INC1
-WHEN:<condition>:ADDX
-END
-RETURN:acc
-\`\`\`
+1. `PythonMaze`: original hand-shaped baseline.
+2. `ASTMaze`: generic low-level grammar with typed holes.
+3. `MotorMaze`: hierarchical list-reduction curriculum using generated statement-sized motor primitives.
 
-\`WHEN\` actions are generated compositionally from legal conditions and updates; there is no task-specific \`MAX\`, \`COUNT_POSITIVE\`, or \`SUM\` action.
+The hierarchy matters. Low-level AST trajectories require roughly 18–26 decisions for the first tasks. The motor layer expresses the same solutions in about 5 semantic decisions.
 
-A provisional program is evaluated during navigation. When it already passes all training tests, goal inhibition freezes semantic changes and permits only block closing / return. This prevents a discovered solution from being destroyed by continued exploration.
+## Hidden evaluation
 
-## Current benchmark
+Training reward uses only visible cases. Hidden cases are evaluated only after a complete training solution is found.
 
-Deterministic smoke benchmark: 300 episodes, seed 42, CPython 3.12.14.
+## Transfer experiment
 
-| Task | Random first solution | Fly first solution |
-|---|---:|---:|
-| \`sum_list\` | 64 | 147 |
-| \`count_positive\` | 253 | 53 |
-| \`max_list\` | none in 300 | 93 |
+The first held-out compositional task is `sum_positive`:
 
-This is an engineering smoke test, not a statistically robust scientific result. Training reward uses only the visible training cases. A separate hidden case set is never used by the reward/probe; the shortest learned solutions for all three tasks score 100% on that hidden set. Broader seed sweeps and held-out tasks are the next validation step.
+```python
+acc = 0
+for x in xs:
+    if x > 0:
+        acc += x
+return acc
+```
+
+It recombines behavior needed by the trained `sum_list` and `count_positive` tasks. The benchmark compares adaptation after pretraining on core tasks against the same agent trained from scratch on `sum_positive`.
 
 ## Run
 
-\`\`\`bash
+```bash
 python -m pip install -e .[dev]
 pytest -q
 
 mosca runtime
 mosca rules
-mosca ast-reference all
-mosca motor-reference all
 mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved --require-fly-generalized
-\`\`\`
+mosca motor-multiseed --episodes 150 --seeds 0,1,2
+mosca transfer-benchmark --pretrain-episodes 300 --adapt-episodes 200 --seed 42
+```
 
 ## Next milestones
 
-1. Run multi-seed statistical comparisons against random search, BFS/MCTS and GRU.
-2. Learn reusable motor options instead of predefining the \`WHEN\` option family.
-3. Expand beyond reductions: filters, maps, nested loops, multiple variables and functions.
-4. Replace task-name input with structured I/O/task sensory features for transfer to unseen tasks.
-5. Only then test connectivity motifs derived from FlyWire against matched synthetic sparse networks.
+1. Quantify transfer over many seeds and multiple unseen compositions.
+2. Add MCTS and GRU baselines over exactly the same motor action space.
+3. Learn reusable motor options instead of predefining the `WHEN` option family.
+4. Expand beyond reductions: filters, maps, nested loops, multiple variables and functions.
+5. Only after controlled baselines, test FlyWire-derived connectivity motifs against matched synthetic sparse networks.

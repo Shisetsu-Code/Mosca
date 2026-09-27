@@ -4,7 +4,7 @@ import argparse
 import json
 
 from .ast_env import ASTMaze
-from .benchmark import benchmark_json, motor_benchmark
+from .benchmark import benchmark_json, motor_benchmark, motor_multiseed, transfer_benchmark
 from .grammar import rule_manifest
 from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
 from .runtime import runtime_status
@@ -69,6 +69,15 @@ def main() -> None:
     motor_bench.add_argument("--require-fly-solved", action="store_true")
     motor_bench.add_argument("--require-fly-generalized", action="store_true")
 
+    multi = sub.add_parser("motor-multiseed", help="repeat motor benchmark across deterministic seeds")
+    multi.add_argument("--episodes", type=int, default=200)
+    multi.add_argument("--seeds", default="0,1,2")
+
+    transfer = sub.add_parser("transfer-benchmark", help="pretrain on core tasks then adapt to an unseen composition")
+    transfer.add_argument("--pretrain-episodes", type=int, default=300)
+    transfer.add_argument("--adapt-episodes", type=int, default=200)
+    transfer.add_argument("--seed", type=int, default=42)
+
     args = parser.parse_args()
 
     if args.command == "runtime":
@@ -105,6 +114,17 @@ def main() -> None:
             ]
             if missing:
                 raise SystemExit("fly failed hidden evaluation: " + ", ".join(missing))
+        return
+    if args.command == "motor-multiseed":
+        seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
+        print(json.dumps(motor_multiseed(args.episodes, seeds), indent=2, sort_keys=True))
+        return
+    if args.command == "transfer-benchmark":
+        print(json.dumps(
+            transfer_benchmark(args.pretrain_episodes, args.adapt_episodes, args.seed),
+            indent=2,
+            sort_keys=True,
+        ))
         return
 
     result = bfs_solve(TASKS[args.task], max_depth=args.depth)
