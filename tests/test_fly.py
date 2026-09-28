@@ -195,3 +195,18 @@ def test_factor_mix_interpolates_broad_and_factor_banks():
     )
     expected = agent.q_fast(action, features) + 0.5 * (broad + factor)
     assert abs(agent.q(action, features, memory) - expected) < 1e-12
+
+
+def test_group_specific_factor_mix_overrides_global_mix():
+    agent = SparseFlyAgent(
+        FlyConfig(
+            factor_mix=0.25,
+            agg_factor_mix=0.75,
+            filter_factor_mix=0.0,
+        ),
+        seed=4,
+    )
+    assert agent._factor_mix_for_concept("agg:sum") == 0.75
+    assert agent._factor_mix_for_concept("agg:max") == 0.75
+    assert agent._factor_mix_for_concept("filter:positive") == 0.0
+    assert agent._factor_mix_for_concept("other") == 0.25
