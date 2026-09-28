@@ -1,5 +1,13 @@
 from mosca.ast_env import ASTMaze
-from mosca.fly import FlyConfig, SparseEncoder, SparseFlyAgent, action_components, memory_action_components
+from mosca.fly import (
+    FlyConfig,
+    SparseEncoder,
+    SparseFlyAgent,
+    action_components,
+    concept_accepts_factor,
+    factor_memory_components,
+    memory_action_components,
+)
 from mosca.motor_env import MotorMaze
 from mosca.tasks import TASKS, TRANSFER_TASKS
 
@@ -115,3 +123,37 @@ def test_sparse_encoder_reuses_token_indices():
     second = enc._indices("sense:test")
     assert first is second
     assert len(enc._index_cache) == 1
+
+
+def test_role_components_are_not_in_broad_memory_channel():
+    assert "control:init" not in memory_action_components("SET:acc=0")
+    assert "control:unconditional" not in memory_action_components("AUG:acc+=1")
+    assert "control:init" in factor_memory_components("SET:acc=0")
+    assert "control:unconditional" in factor_memory_components("AUG:acc+=1")
+
+
+def test_role_factor_routing_is_semantic():
+    assert concept_accepts_factor("role:identity_zero", "control:init")
+    assert concept_accepts_factor("role:identity_zero", "effect_rhs:0")
+    assert not concept_accepts_factor("role:identity_zero", "effect_rhs:x")
+    assert concept_accepts_factor("role:list_reduce", "control:loop")
+    assert concept_accepts_factor("role:list_reduce", "control:return")
+
+
+def test_role_mix_zero_cannot_change_q():
+    agent = SparseFlyAgent(
+        FlyConfig(slow_mix=0.45, role_factor_mix=0.0),
+        seed=9,
+    )
+    env = MotorMaze(TASKS["sum_list"])
+    obs = env.observe()
+    features = agent.features(obs)
+    memory = agent.memory_features(obs)
+    action = env.valid_actions()[0]
+    agent._active_context = "none"
+    agent._active_concepts = ("role:identity_zero",)
+    agent.factor_concept_weights["role:identity_zero"] = {
+        "control:init": {memory[0]: 100.0},
+        "effect_rhs:0": {memory[0]: 100.0},
+    }
+    assert agent.q(action, features, memory) == agent.q_fast(action, features)
