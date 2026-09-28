@@ -7,6 +7,7 @@ on:
       - exp/numpy-fastweights
       - exp/numpy-traces
       - exp/batched-q
+      - exp/probe-no-deepcopy
   workflow_dispatch:
 
 jobs:
