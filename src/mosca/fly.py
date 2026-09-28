@@ -96,7 +96,7 @@ def action_components(action: str) -> tuple[str, ...]:
 
 def memory_action_components(action: str) -> tuple[str, ...]:
     """Semantic factorization used only by task-independent concept memory."""
-    keys = [f"exact:{action}"]
+    keys: list[str] = []
     if action.startswith("SET:acc="):
         rhs = action.split("=", 1)[1]
         keys += ("control:write", "dst:acc", "effect:set", f"effect_rhs:{rhs}")

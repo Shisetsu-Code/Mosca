@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - exp/transfer-suite
+      - exp/semantic-memory-only
   workflow_dispatch:
 
 jobs:

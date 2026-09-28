@@ -88,3 +88,10 @@ def test_eligibility_traces_use_dense_numpy_vectors():
     assert agent.memory_traces
     assert all(isinstance(v, np.ndarray) for v in agent.traces.values())
     assert all(isinstance(v, np.ndarray) for v in agent.memory_traces.values())
+
+
+def test_concept_memory_excludes_exact_source_actions():
+    parts = memory_action_components("WHEN:x>0:INC1")
+    assert not any(part.startswith("exact:") for part in parts)
+    assert "control:conditional" in parts
+    assert "effect:add" in parts
