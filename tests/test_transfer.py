@@ -1,4 +1,10 @@
-from mosca.benchmark import transfer_benchmark, transfer_suite
+from mosca.benchmark import (
+    DEFAULT_TRANSFER_AGG_FACTOR_MIX,
+    DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
+    DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
+    transfer_benchmark,
+    transfer_suite,
+)
 from mosca.motor_env import MotorMaze
 from mosca.sensory import task_memory_concepts
 from mosca.tasks import TASKS, TRANSFER_TASKS
@@ -99,3 +105,14 @@ def test_factor_channel_mixes_are_reported_by_suite():
     assert result["role_factor_mix"] == 0.30
     assert result["agg_factor_mix"] == 0.15
     assert result["filter_factor_mix"] == 0.20
+
+
+def test_validated_transfer_defaults_are_enabled():
+    result = transfer_suite(
+        pretrain_episodes=3,
+        adapt_episodes=2,
+        seeds=(0,),
+    )
+    assert result["role_factor_mix"] == DEFAULT_TRANSFER_ROLE_FACTOR_MIX == 0.30
+    assert result["agg_factor_mix"] == DEFAULT_TRANSFER_AGG_FACTOR_MIX == 0.15
+    assert result["filter_factor_mix"] == DEFAULT_TRANSFER_FILTER_FACTOR_MIX == 0.0
