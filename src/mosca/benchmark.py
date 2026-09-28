@@ -221,7 +221,8 @@ def motor_benchmark(episodes: int = 300, seed: int = 42) -> dict:
 
 def _motor_config(
     role_factor_mix: float = 0.0,
-    filter_all_factor_mix: float = 0.0,
+    agg_factor_mix: float = 0.0,
+    filter_factor_mix: float = 0.0,
 ) -> FlyConfig:
     return FlyConfig(
         epsilon=0.30,
@@ -232,7 +233,8 @@ def _motor_config(
         consolidation_rate=0.12,
         slow_mix=0.45,
         role_factor_mix=role_factor_mix,
-        filter_all_factor_mix=filter_all_factor_mix,
+        agg_factor_mix=agg_factor_mix,
+        filter_factor_mix=filter_factor_mix,
         consolidation_threshold=7.0,
     )
 
@@ -503,7 +505,8 @@ def transfer_suite(
     adapt_episodes: int = 250,
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
     role_factor_mix: float = 0.0,
-    filter_all_factor_mix: float = 0.0,
+    agg_factor_mix: float = 0.0,
+    filter_factor_mix: float = 0.0,
 ) -> dict:
     """Pretrain once per seed, then test several held-out compositions."""
 
@@ -511,7 +514,7 @@ def transfer_suite(
     runs: list[dict] = []
 
     for seed in seeds:
-        pretrained = SparseFlyAgent(_motor_config(0.0, 0.0), seed=seed)
+        pretrained = SparseFlyAgent(_motor_config(0.0, 0.0, 0.0), seed=seed)
         pretrain_counter = OracleCounter()
         for episode in range(pretrain_episodes):
             _learn_motor_episode(
@@ -531,7 +534,8 @@ def transfer_suite(
             target_config = replace(
                 transfer_agent.config,
                 role_factor_mix=role_factor_mix,
-                filter_all_factor_mix=filter_all_factor_mix,
+                agg_factor_mix=agg_factor_mix,
+                filter_factor_mix=filter_factor_mix,
             )
             transfer_agent.config = target_config
             scratch_agent = SparseFlyAgent(target_config, seed=seed)
@@ -635,7 +639,8 @@ def transfer_suite(
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
         "role_factor_mix": role_factor_mix,
-        "filter_all_factor_mix": filter_all_factor_mix,
+        "agg_factor_mix": agg_factor_mix,
+        "filter_factor_mix": filter_factor_mix,
         "seeds": list(seeds),
         "targets": list(TRANSFER_TASKS),
         "summary": summary,
