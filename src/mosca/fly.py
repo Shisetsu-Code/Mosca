@@ -185,36 +185,56 @@ def factor_memory_components(action: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
-_CONCEPT_FACTOR_COMPONENTS: dict[str, frozenset[str]] = {
-    "agg:sum": frozenset({"effect:add", "effect_rhs:x"}),
-    "agg:count": frozenset({"effect:add", "effect_rhs:1"}),
-    "agg:max": frozenset({
-        "control:conditional", "lhs:x", "cmp:>", "cond_rhs:acc",
-        "effect:set", "effect_rhs:x",
-    }),
-    "agg:min": frozenset({
-        "control:conditional", "lhs:x", "cmp:<", "cond_rhs:acc",
-        "effect:set", "effect_rhs:x",
-    }),
-    "filter:positive": frozenset({
-        "control:conditional", "lhs:x", "cmp:>", "cond_rhs:0",
-    }),
-    "filter:negative": frozenset({
-        "control:conditional", "lhs:x", "cmp:<", "cond_rhs:0",
-    }),
-    "filter:all": frozenset({"control:unconditional"}),
-    "role:identity_zero": frozenset({
-        "control:init", "dst:acc", "effect:set", "effect_rhs:0",
-    }),
-    "role:list_reduce": frozenset({
-        "control:loop", "iter:x", "source:xs",
-        "control:end", "control:return", "effect_rhs:acc",
-    }),
+_CONCEPT_FACTOR_PATTERNS: dict[str, tuple[frozenset[str], ...]] = {
+    "agg:sum": (
+        frozenset({"effect:add", "effect_rhs:x"}),
+    ),
+    "agg:count": (
+        frozenset({"effect:add", "effect_rhs:1"}),
+    ),
+    "agg:max": (
+        frozenset({
+            "control:conditional", "lhs:x", "cmp:>", "cond_rhs:acc",
+            "effect:set", "effect_rhs:x",
+        }),
+    ),
+    "agg:min": (
+        frozenset({
+            "control:conditional", "lhs:x", "cmp:<", "cond_rhs:acc",
+            "effect:set", "effect_rhs:x",
+        }),
+    ),
+    "filter:positive": (
+        frozenset({
+            "control:conditional", "lhs:x", "cmp:>", "cond_rhs:0",
+        }),
+    ),
+    "filter:negative": (
+        frozenset({
+            "control:conditional", "lhs:x", "cmp:<", "cond_rhs:0",
+        }),
+    ),
+    "filter:all": (
+        frozenset({"control:unconditional"}),
+    ),
+    "role:identity_zero": (
+        frozenset({
+            "control:init", "dst:acc", "effect:set", "effect_rhs:0",
+        }),
+    ),
+    "role:list_reduce": (
+        frozenset({"control:loop", "iter:x", "source:xs"}),
+        frozenset({"control:end"}),
+        frozenset({"control:return", "effect_rhs:acc"}),
+    ),
 }
 
 
 def concept_accepts_factor(concept: str, component: str) -> bool:
-    return component in _CONCEPT_FACTOR_COMPONENTS.get(concept, frozenset())
+    return any(
+        component in pattern
+        for pattern in _CONCEPT_FACTOR_PATTERNS.get(concept, ())
+    )
 
 
 class SparseFlyAgent:
@@ -326,17 +346,26 @@ class SparseFlyAgent:
         action: str,
         features: tuple[int, ...],
     ) -> float:
-        keys = tuple(
-            key for key in factor_memory_components(action)
-            if concept_accepts_factor(concept, key)
-        )
-        if not keys:
+        action_components_set = set(factor_memory_components(action))
+        matching = [
+            pattern
+            for pattern in _CONCEPT_FACTOR_PATTERNS.get(concept, ())
+            if pattern <= action_components_set
+        ]
+        if not matching:
             return 0.0
-        total = 0.0
-        for key in keys:
-            weights = table.get(key, {})
-            total += sum(weights.get(i, 0.0) for i in features)
-        return total / math.sqrt(max(1, len(features) * len(keys)))
+
+        best = 0.0
+        for pattern in matching:
+            total = 0.0
+            for key in pattern:
+                weights = table.get(key, {})
+                total += sum(weights.get(i, 0.0) for i in features)
+            value = total / math.sqrt(
+                max(1, len(features) * len(pattern))
+            )
+            best = max(best, value)
+        return best
 
     def _q_with_fast(
         self,
