@@ -107,3 +107,11 @@ def test_batched_fast_q_matches_scalar_fast_q():
     batched = agent.q_fast_many(actions, features)
     for action in actions:
         assert abs(batched[action] - agent.q_fast(action, features)) < 1e-12
+
+
+def test_sparse_encoder_reuses_token_indices():
+    enc = SparseEncoder(width=1024, hashes_per_token=3)
+    first = enc._indices("sense:test")
+    second = enc._indices("sense:test")
+    assert first is second
+    assert len(enc._index_cache) == 1
