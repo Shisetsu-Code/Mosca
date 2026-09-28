@@ -8,6 +8,7 @@ on:
       - exp/numpy-traces
       - exp/batched-q
       - exp/probe-no-deepcopy
+      - exp/encoder-cache-v2
   workflow_dispatch:
 
 jobs:
