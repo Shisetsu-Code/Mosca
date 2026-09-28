@@ -37,7 +37,6 @@ def _case_features(xs: list[int], out: int) -> set[str]:
         "eq:pos_count": out == sum(x > 0 for x in xs),
         "eq:neg_count": out == sum(x < 0 for x in xs),
         "eq:max": bool(xs) and out == max(xs),
-        "eq:pos_max": out == max([0, *xs]),
         "eq:min": bool(xs) and out == min(xs),
         "member": out in xs if xs else False,
         "out>=0": out >= 0,
@@ -83,10 +82,19 @@ def task_memory_concepts(task: Task) -> tuple[str, ...]:
         "eq:pos_count": ("agg:count", "filter:positive"),
         "eq:neg_count": ("agg:count", "filter:negative"),
         "eq:max": ("agg:max", "filter:all"),
-        "eq:pos_max": ("agg:max", "filter:positive"),
         "eq:min": ("agg:min", "filter:all"),
     }
     concepts: set[str] = set()
     for relation in stable:
         concepts.update(mapping.get(relation, ()))
+
+    # Additional concepts may be inferred for slow memory without changing
+    # the fast sensory signature used by the established v0.8 policy.
+    positive_max = all(
+        int(case.expected) == max([0, *list(case.args[0])])
+        for case in task.cases
+    )
+    if positive_max:
+        concepts.update(("agg:max", "filter:positive"))
+
     return tuple(sorted(concepts))
