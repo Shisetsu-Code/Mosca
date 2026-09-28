@@ -24,6 +24,9 @@ class FlyConfig:
     role_factor_mix: float = 0.0
     agg_factor_mix: float = 0.0
     filter_factor_mix: float = 0.0
+    adaptive_factor_gates: bool = False
+    gate_alpha: float = 0.02
+    gate_trace_decay: float = 0.90
     consolidation_threshold: float = 7.0
 
 
@@ -234,12 +237,41 @@ class SparseFlyAgent:
         self.traces: dict[str, np.ndarray] = {}
         self.memory_traces: dict[str, np.ndarray] = {}
         self.factor_memory_traces: dict[str, np.ndarray] = {}
+        self.factor_gates: dict[str, float] = {
+            "role": float(self.config.role_factor_mix),
+            "agg": float(self.config.agg_factor_mix),
+            "filter": float(self.config.filter_factor_mix),
+        }
+        self.gate_traces: dict[str, float] = {
+            "role": 0.0,
+            "agg": 0.0,
+            "filter": 0.0,
+        }
+        self._last_factor_values: dict[str, float] = {
+            "role": 0.0,
+            "agg": 0.0,
+            "filter": 0.0,
+        }
+        self._adaptive_was_enabled = bool(self.config.adaptive_factor_gates)
         self.history: deque[str] = deque(maxlen=self.config.history)
 
+    def _sync_factor_gates(self) -> None:
+        enabled = bool(self.config.adaptive_factor_gates)
+        if enabled and not self._adaptive_was_enabled:
+            self.factor_gates = {
+                "role": float(self.config.role_factor_mix),
+                "agg": float(self.config.agg_factor_mix),
+                "filter": float(self.config.filter_factor_mix),
+            }
+        self._adaptive_was_enabled = enabled
+
     def begin_episode(self) -> None:
+        self._sync_factor_gates()
         self.traces.clear()
         self.memory_traces.clear()
         self.factor_memory_traces.clear()
+        self.gate_traces = {"role": 0.0, "agg": 0.0, "filter": 0.0}
+        self._last_factor_values = {"role": 0.0, "agg": 0.0, "filter": 0.0}
         self.history.clear()
 
     @staticmethod
@@ -338,6 +370,65 @@ class SparseFlyAgent:
             total += sum(weights.get(i, 0.0) for i in features)
         return total / math.sqrt(max(1, len(features) * len(keys)))
 
+    @staticmethod
+    def _factor_family(concept: str) -> str | None:
+        if concept.startswith("role:"):
+            return "role"
+        if concept.startswith("agg:"):
+            return "agg"
+        if concept.startswith("filter:"):
+            return "filter"
+        return None
+
+    def factor_gate_snapshot(self) -> dict[str, float]:
+        self._sync_factor_gates()
+        if self.config.adaptive_factor_gates:
+            return dict(self.factor_gates)
+        return {
+            "role": float(self.config.role_factor_mix),
+            "agg": float(self.config.agg_factor_mix),
+            "filter": float(self.config.filter_factor_mix),
+        }
+
+    def _factor_family_values(
+        self,
+        action: str,
+        memory_features: tuple[int, ...],
+    ) -> dict[str, float]:
+        values: dict[str, list[float]] = {
+            "role": [],
+            "agg": [],
+            "filter": [],
+        }
+        for concept in self._active_concepts:
+            family = self._factor_family(concept)
+            if family is None:
+                continue
+            table = self.factor_concept_weights.get(concept)
+            if not table:
+                continue
+            value = self._factor_table_q(
+                concept, table, action, memory_features
+            )
+            if value != 0.0:
+                values[family].append(value)
+        return {
+            family: (sum(items) / len(items) if items else 0.0)
+            for family, items in values.items()
+        }
+
+    def _factor_mix(self, family: str) -> float:
+        self._sync_factor_gates()
+        if self.config.adaptive_factor_gates:
+            value = self.factor_gates[family]
+        elif family == "role":
+            value = self.config.role_factor_mix
+        elif family == "agg":
+            value = self.config.agg_factor_mix
+        else:
+            value = self.config.filter_factor_mix
+        return min(1.0, max(0.0, float(value)))
+
     def _q_with_fast(
         self,
         action: str,
@@ -368,32 +459,17 @@ class SparseFlyAgent:
         if slow_values:
             total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
 
-        factor_values = []
-        for concept in self._active_concepts:
-            if concept.startswith("role:"):
-                mix = self.config.role_factor_mix
-            elif concept.startswith("agg:"):
-                mix = self.config.agg_factor_mix
-            elif concept.startswith("filter:"):
-                mix = self.config.filter_factor_mix
-            else:
-                mix = 0.0
-
-            mix = min(1.0, max(0.0, mix))
-            if mix <= 0.0:
-                continue
-            table = self.factor_concept_weights.get(concept)
-            if not table:
-                continue
-            value = self._factor_table_q(
-                concept, table, action, memory_features
-            )
-            if value != 0.0:
-                factor_values.append(mix * value)
-
-        if factor_values:
+        family_values = self._factor_family_values(
+            action, memory_features
+        )
+        weighted = [
+            self._factor_mix(family) * value
+            for family, value in family_values.items()
+            if value != 0.0 and self._factor_mix(family) > 0.0
+        ]
+        if weighted:
             total += self.config.slow_mix * (
-                sum(factor_values) / len(factor_values)
+                sum(weighted) / len(weighted)
             )
         return total
 
@@ -436,10 +512,17 @@ class SparseFlyAgent:
                     a,
                 ),
             )
+            self._last_factor_values = self._factor_family_values(
+                action, memory_features
+            )
             return action, features
 
         if self.rng.random() < self.config.epsilon:
-            return self.rng.choice(valid_actions), features
+            action = self.rng.choice(valid_actions)
+            self._last_factor_values = self._factor_family_values(
+                action, memory_features
+            )
+            return action, features
 
         fast_scores = self.q_fast_many(valid_actions, features)
         scored = [
@@ -452,7 +535,11 @@ class SparseFlyAgent:
             )
             for a in valid_actions
         ]
-        return max(scored)[2], features
+        action = max(scored)[2]
+        self._last_factor_values = self._factor_family_values(
+            action, memory_features
+        )
+        return action, features
 
     def _consolidate_context(self) -> None:
         rate = self.config.consolidation_rate
@@ -528,6 +615,25 @@ class SparseFlyAgent:
             next_scores = self.q_fast_many(next_actions, next_features)
             target = reward + self.config.gamma * max(next_scores.values())
         delta = target - q_now
+
+        if self.config.adaptive_factor_gates:
+            gate_decay = (
+                self.config.gamma * self.config.gate_trace_decay
+            )
+            modulator = math.tanh(delta)
+            for family, signal in self._last_factor_values.items():
+                trace = (
+                    gate_decay * self.gate_traces[family]
+                    + math.tanh(signal)
+                )
+                self.gate_traces[family] = trace
+                updated = (
+                    self.factor_gates[family]
+                    + self.config.gate_alpha * modulator * trace
+                )
+                self.factor_gates[family] = min(
+                    1.0, max(0.0, updated)
+                )
 
         decay = self.config.gamma * self.config.trace_decay
         for eligibility in self.traces.values():
