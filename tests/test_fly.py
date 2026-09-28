@@ -171,3 +171,45 @@ def test_factor_channels_are_gated_independently():
     assert config.filter_factor_mix == 0.20
     assert concept_accepts_factor("agg:count", "effect_rhs:1")
     assert concept_accepts_factor("filter:all", "control:unconditional")
+
+
+def test_factor_recall_requires_complete_max_motif():
+    agent = SparseFlyAgent(seed=12)
+    env = MotorMaze(TASKS["max_list"])
+    obs = env.observe()
+    features = agent.memory_features(obs)
+    table = {
+        "control:conditional": {features[0]: 1.0},
+        "lhs:x": {features[0]: 1.0},
+        "cmp:>": {features[0]: 1.0},
+        "cond_rhs:acc": {features[0]: 1.0},
+        "effect:set": {features[0]: 1.0},
+        "effect_rhs:x": {features[0]: 1.0},
+    }
+    assert agent._factor_table_q(
+        "agg:max", table, "WHEN:x>0:SETX", features
+    ) == 0.0
+    assert agent._factor_table_q(
+        "agg:max", table, "WHEN:x>acc:SETX", features
+    ) > 0.0
+
+
+def test_list_reduce_role_has_separate_complete_motifs():
+    agent = SparseFlyAgent(seed=13)
+    env = MotorMaze(TASKS["sum_list"])
+    obs = env.observe()
+    features = agent.memory_features(obs)
+    table = {
+        "control:loop": {features[0]: 1.0},
+        "iter:x": {features[0]: 1.0},
+        "source:xs": {features[0]: 1.0},
+        "control:end": {features[0]: 1.0},
+        "control:return": {features[0]: 1.0},
+        "effect_rhs:acc": {features[0]: 1.0},
+    }
+    assert agent._factor_table_q(
+        "role:list_reduce", table, "FOR:x:xs", features
+    ) > 0.0
+    assert agent._factor_table_q(
+        "role:list_reduce", table, "RETURN:acc", features
+    ) > 0.0
