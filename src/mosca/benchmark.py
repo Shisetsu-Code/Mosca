@@ -219,7 +219,7 @@ def motor_benchmark(episodes: int = 300, seed: int = 42) -> dict:
 
 
 
-def _motor_config() -> FlyConfig:
+def _motor_config(concept_mix: float | None = None) -> FlyConfig:
     return FlyConfig(
         epsilon=0.30,
         alpha=0.065,
@@ -228,6 +228,7 @@ def _motor_config() -> FlyConfig:
         history=8,
         consolidation_rate=0.12,
         slow_mix=0.45,
+        concept_mix=concept_mix,
         consolidation_threshold=7.0,
     )
 
@@ -486,4 +487,35 @@ def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 1) -> 
         "best_hidden_score": best_hidden,
         "example_sources": examples,
         "oracle": counter.snapshot(),
+    }
+
+
+
+def concept_zero_shot(
+    pretrain_episodes: int = 600,
+    seed: int = 0,
+    concept_mix: float = 0.45,
+) -> dict:
+    """Measure deterministic zero-shot composition after source pretraining."""
+    sources = tuple(TASKS.values())
+    target = TRANSFER_TASKS["sum_positive"]
+    agent = SparseFlyAgent(_motor_config(concept_mix=concept_mix), seed=seed)
+    counter = OracleCounter()
+
+    for episode in range(pretrain_episodes):
+        _learn_motor_episode(
+            agent,
+            sources[episode % len(sources)],
+            counter=counter,
+        )
+
+    zero_shot = _zero_shot_summary(copy.deepcopy(agent), target)
+    return {
+        "seed": seed,
+        "pretrain_episodes": pretrain_episodes,
+        "concept_mix": concept_mix,
+        "target": target.name,
+        "pretrain_oracle": counter.snapshot(),
+        "zero_shot": zero_shot,
+        "parameters": agent.parameter_count(),
     }

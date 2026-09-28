@@ -4,7 +4,7 @@ import argparse
 import json
 
 from .ast_env import ASTMaze
-from .benchmark import benchmark_json, motor_benchmark, motor_multiseed, transfer_benchmark, transfer_multiseed
+from .benchmark import benchmark_json, concept_zero_shot, motor_benchmark, motor_multiseed, transfer_benchmark, transfer_multiseed
 from .grammar import rule_manifest
 from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
 from .resource import resource_benchmark
@@ -100,6 +100,11 @@ def main() -> None:
     resources.add_argument("--mcts-simulations", type=int, default=500)
     resources.add_argument("--random-episodes", type=int, default=500)
 
+    concept = sub.add_parser("concept-zero-shot", help="test deterministic zero-shot with a concept-memory mix")
+    concept.add_argument("--pretrain-episodes", type=int, default=600)
+    concept.add_argument("--seed", type=int, default=0)
+    concept.add_argument("--concept-mix", type=float, default=0.45)
+
     args = parser.parse_args()
 
     if args.command == "runtime":
@@ -170,6 +175,13 @@ def main() -> None:
             adapt_episodes=args.adapt_episodes,
             mcts_simulations=args.mcts_simulations,
             random_episodes=args.random_episodes,
+        ), indent=2, sort_keys=True))
+        return
+    if args.command == "concept-zero-shot":
+        print(json.dumps(concept_zero_shot(
+            pretrain_episodes=args.pretrain_episodes,
+            seed=args.seed,
+            concept_mix=args.concept_mix,
         ), indent=2, sort_keys=True))
         return
 

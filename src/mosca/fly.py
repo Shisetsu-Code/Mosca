@@ -21,6 +21,7 @@ class FlyConfig:
     epsilon: float = 0.18
     consolidation_rate: float = 0.0
     slow_mix: float = 0.0
+    concept_mix: float | None = None
     consolidation_threshold: float = 7.0
 
 
@@ -249,25 +250,31 @@ class SparseFlyAgent:
         memory_features: tuple[int, ...],
     ) -> float:
         total = fast_value
-        slow_values: list[float] = []
+        weighted_slow = 0.0
+        slow_banks = 0
 
         context_table = self.slow_weights.get(self._active_context)
         if context_table:
-            slow_values.append(
-                self._table_q(context_table, action, features, action_components)
+            weighted_slow += self.config.slow_mix * self._table_q(
+                context_table, action, features, action_components
             )
+            slow_banks += 1
 
+        concept_mix = (
+            self.config.slow_mix
+            if self.config.concept_mix is None
+            else self.config.concept_mix
+        )
         for concept in self._active_concepts:
             table = self.concept_weights.get(concept)
             if table:
-                slow_values.append(
-                    self._table_q(
-                        table, action, memory_features, memory_action_components
-                    )
+                weighted_slow += concept_mix * self._table_q(
+                    table, action, memory_features, memory_action_components
                 )
+                slow_banks += 1
 
-        if slow_values:
-            total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
+        if slow_banks:
+            total += weighted_slow / slow_banks
         return total
 
     def q(
