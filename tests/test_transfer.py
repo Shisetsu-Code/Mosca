@@ -85,3 +85,17 @@ def test_role_factor_mix_is_reported_by_suite():
         role_factor_mix=0.25,
     )
     assert result["role_factor_mix"] == 0.25
+
+
+def test_factor_channel_mixes_are_reported_by_suite():
+    result = transfer_suite(
+        pretrain_episodes=3,
+        adapt_episodes=2,
+        seeds=(0,),
+        role_factor_mix=0.30,
+        agg_factor_mix=0.15,
+        filter_factor_mix=0.20,
+    )
+    assert result["role_factor_mix"] == 0.30
+    assert result["agg_factor_mix"] == 0.15
+    assert result["filter_factor_mix"] == 0.20
