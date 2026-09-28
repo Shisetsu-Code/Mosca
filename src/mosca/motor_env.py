@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import copy
 import warnings
 from dataclasses import dataclass
 
@@ -185,19 +184,27 @@ class MotorMaze:
             return 0.0
         if self._probe_cache is not None:
             return self._probe_cache
-        root = copy.deepcopy(self.root)
 
-        def fill_empty(body: list[ast.stmt]) -> None:
-            if not body:
-                body.append(ast.Pass())
-                return
+        patched_bodies: list[list[ast.stmt]] = []
+
+        def patch_empty(body: list[ast.stmt]) -> None:
             for stmt in body:
                 if isinstance(stmt, (ast.For, ast.If)):
-                    fill_empty(stmt.body)
+                    if not stmt.body:
+                        stmt.body.append(ast.Pass())
+                        patched_bodies.append(stmt.body)
+                    else:
+                        patch_empty(stmt.body)
 
-        fill_empty(root)
-        root.append(ast.Return(ast.Name("acc", ast.Load())))
-        self._probe_cache = self._evaluate_root(root).score
+        # Probe synchronously against the live AST, filling only structurally
+        # illegal empty bodies. The temporary Pass nodes are removed afterward.
+        patch_empty(self.root)
+        probe_root = [*self.root, ast.Return(ast.Name("acc", ast.Load()))]
+        try:
+            self._probe_cache = self._evaluate_root(probe_root).score
+        finally:
+            for body in reversed(patched_bodies):
+                body.pop()
         return self._probe_cache
 
     def step(self, action: str) -> tuple[dict, float, bool, dict]:

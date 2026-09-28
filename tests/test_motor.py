@@ -43,3 +43,16 @@ def test_oracle_counter_separates_visible_and_hidden_work():
     assert hidden["hidden_oracle_calls"] == 1
     assert hidden["hidden_case_executions"] == len(TASKS["sum_list"].hidden_cases)
     assert hidden["visible_oracle_calls"] == visible["visible_oracle_calls"]
+
+
+def test_probe_does_not_leave_temporary_pass_nodes():
+    import ast
+
+    env = MotorMaze(TASKS["sum_list"], max_steps=8)
+    env.step("SET:acc=0")
+    env.step("FOR:x:xs")
+    assert env.frame.kind == "for"
+    assert env.frame.body == []
+    env.probe_score()
+    assert env.frame.body == []
+    assert not any(isinstance(node, ast.Pass) for node in ast.walk(env.module()))
