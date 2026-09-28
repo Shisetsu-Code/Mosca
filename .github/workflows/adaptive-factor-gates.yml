@@ -1,0 +1,56 @@
+name: adaptive-factor-gates
+
+on:
+  push:
+    branches:
+      - exp/adaptive-factor-gates
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [fixed, adaptive005, adaptive020, adaptive050]
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - run: python -m pip install -e .[dev]
+      - name: fixed v0.10
+        if: matrix.mode == 'fixed'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+      - name: adaptive alpha 0.005
+        if: matrix.mode == 'adaptive005'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --adaptive-factor-gates
+          --gate-alpha 0.005
+      - name: adaptive alpha 0.020
+        if: matrix.mode == 'adaptive020'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --adaptive-factor-gates
+          --gate-alpha 0.020
+      - name: adaptive alpha 0.050
+        if: matrix.mode == 'adaptive050'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --adaptive-factor-gates
+          --gate-alpha 0.050
