@@ -45,7 +45,8 @@ def test_memory_concepts_compose_source_behaviors():
             "role:identity_zero", "role:list_reduce",
         },
         "max_positive_or_zero": {
-            "agg:max", "role:identity_zero", "role:list_reduce",
+            "agg:max", "filter:positive",
+            "role:identity_zero", "role:list_reduce",
         },
     }
     for name, concepts in expected.items():
@@ -76,8 +77,8 @@ def test_transfer_suite_smoke():
     assert len(result["runs"]) == 1
 
 
-def test_positive_max_does_not_require_explicit_positive_filter():
+def test_positive_max_adds_identity_without_removing_v09_filter():
     concepts = set(task_memory_concepts(TRANSFER_TASKS["max_positive_or_zero"]))
     assert "agg:max" in concepts
     assert "role:identity_zero" in concepts
-    assert "filter:positive" not in concepts
+    assert "filter:positive" in concepts
