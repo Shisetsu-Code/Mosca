@@ -22,6 +22,8 @@ class FlyConfig:
     consolidation_rate: float = 0.0
     slow_mix: float = 0.0
     factor_mix: float = 0.0
+    agg_factor_mix: float | None = None
+    filter_factor_mix: float | None = None
     consolidation_threshold: float = 7.0
 
 
@@ -270,6 +272,14 @@ class SparseFlyAgent:
             for action, keys in keys_by_action.items()
         }
 
+    def _factor_mix_for_concept(self, concept: str) -> float:
+        mix = self.config.factor_mix
+        if concept.startswith("agg:") and self.config.agg_factor_mix is not None:
+            mix = self.config.agg_factor_mix
+        elif concept.startswith("filter:") and self.config.filter_factor_mix is not None:
+            mix = self.config.filter_factor_mix
+        return min(1.0, max(0.0, mix))
+
     def _q_with_fast(
         self,
         action: str,
@@ -286,8 +296,8 @@ class SparseFlyAgent:
                 self._table_q(context_table, action, features, action_components)
             )
 
-        factor_mix = min(1.0, max(0.0, self.config.factor_mix))
         for concept in self._active_concepts:
+            factor_mix = self._factor_mix_for_concept(concept)
             broad_table = self.concept_weights.get(concept)
             factor_table = self.factor_concept_weights.get(concept)
             broad_q = (
