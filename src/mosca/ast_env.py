@@ -92,7 +92,7 @@ class ASTMaze:
 
         return self.observe(), reward, self.done, info
 
-    def evaluate(self) -> Evaluation:
+    def _evaluate_cases(self, cases) -> Evaluation:
         try:
             module = to_ast(self.tree)
             with warnings.catch_warnings():
@@ -102,11 +102,11 @@ class ASTMaze:
             exec(code, namespace, namespace)
             solve = namespace["solve"]
         except Exception as exc:
-            return Evaluation(False, 0, len(self.task.cases), f"{type(exc).__name__}: {exc}")
+            return Evaluation(False, 0, len(cases), f"{type(exc).__name__}: {exc}")
 
         passed = 0
         first_error: str | None = None
-        for case in self.task.cases:
+        for case in cases:
             try:
                 result = solve(*case.args)
                 if result == case.expected:
@@ -116,7 +116,13 @@ class ASTMaze:
             except Exception as exc:
                 if first_error is None:
                     first_error = f"{type(exc).__name__}: {exc}"
-        return Evaluation(True, passed, len(self.task.cases), first_error)
+        return Evaluation(True, passed, len(cases), first_error)
+
+    def evaluate(self) -> Evaluation:
+        return self._evaluate_cases(self.task.cases)
+
+    def evaluate_hidden(self) -> Evaluation:
+        return self._evaluate_cases(self.task.hidden_cases or self.task.cases)
 
     def source(self) -> str | None:
         return source(self.tree) if count_holes(self.tree) == 0 else None
