@@ -59,3 +59,23 @@ def test_fly_agent_still_updates_fast_weights():
     next_obs, reward, done, _ = env.step(action)
     agent.learn(features, action, reward, next_obs, env.valid_actions(), done)
     assert agent.fast_parameter_count() > 0
+
+
+def test_encoder_token_indices_are_cached():
+    obs = MotorMaze(TASKS["sum_list"]).observe()
+    enc = SparseEncoder(width=1024, hashes_per_token=3)
+    enc.encode(obs)
+    before = enc._indices.cache_info().hits
+    enc.encode(obs)
+    assert enc._indices.cache_info().hits > before
+
+
+def test_action_component_functions_are_cached():
+    action_components.cache_clear()
+    memory_action_components.cache_clear()
+    action_components("WHEN:x>0:ADDX")
+    memory_action_components("WHEN:x>0:ADDX")
+    action_components("WHEN:x>0:ADDX")
+    memory_action_components("WHEN:x>0:ADDX")
+    assert action_components.cache_info().hits >= 1
+    assert memory_action_components.cache_info().hits >= 1
