@@ -88,3 +88,22 @@ def test_eligibility_traces_use_dense_numpy_vectors():
     assert agent.memory_traces
     assert all(isinstance(v, np.ndarray) for v in agent.traces.values())
     assert all(isinstance(v, np.ndarray) for v in agent.memory_traces.values())
+
+
+def test_batched_fast_q_matches_scalar_fast_q():
+    agent = SparseFlyAgent(seed=8)
+    env = MotorMaze(TASKS["count_positive"])
+    obs = env.observe()
+    features = agent.features(obs)
+    actions = env.valid_actions()
+
+    # Seed a few component tables so the test covers non-zero values.
+    for action in actions:
+        for key in action_components(action):
+            table = agent._fast_table(key)
+            for index in features[:3]:
+                table[index] += 0.125
+
+    batched = agent.q_fast_many(actions, features)
+    for action in actions:
+        assert abs(batched[action] - agent.q_fast(action, features)) < 1e-12

@@ -6,6 +6,7 @@ on:
       - exp/resource-profile
       - exp/numpy-fastweights
       - exp/numpy-traces
+      - exp/batched-q
   workflow_dispatch:
 
 jobs:

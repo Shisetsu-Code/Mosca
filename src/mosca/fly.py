@@ -195,20 +195,53 @@ class SparseFlyAgent:
 
     def q_fast(self, action: str, features: tuple[int, ...]) -> float:
         keys = action_components(action)
+        indices = np.asarray(features, dtype=np.intp)
         total = 0.0
         for key in keys:
             weights = self.weights.get(key)
             if weights is not None:
-                total += float(np.take(weights, features).sum())
+                total += float(weights[indices].sum())
         return total / math.sqrt(max(1, len(features) * len(keys)))
 
-    def q(
+    def q_fast_many(
+        self,
+        actions: tuple[str, ...],
+        features: tuple[int, ...],
+    ) -> dict[str, float]:
+        """Evaluate shared action components once for one sparse state."""
+        if not actions:
+            return {}
+        keys_by_action = {action: action_components(action) for action in actions}
+        unique_keys = {
+            key
+            for keys in keys_by_action.values()
+            for key in keys
+        }
+        indices = np.asarray(features, dtype=np.intp)
+        component_scores: dict[str, float] = {}
+        for key in unique_keys:
+            weights = self.weights.get(key)
+            component_scores[key] = (
+                float(weights[indices].sum()) if weights is not None else 0.0
+            )
+
+        feature_count = len(features)
+        return {
+            action: (
+                sum(component_scores[key] for key in keys)
+                / math.sqrt(max(1, feature_count * len(keys)))
+            )
+            for action, keys in keys_by_action.items()
+        }
+
+    def _q_with_fast(
         self,
         action: str,
+        fast_value: float,
         features: tuple[int, ...],
         memory_features: tuple[int, ...],
     ) -> float:
-        total = self.q_fast(action, features)
+        total = fast_value
         slow_values: list[float] = []
 
         context_table = self.slow_weights.get(self._active_context)
@@ -230,6 +263,19 @@ class SparseFlyAgent:
             total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
         return total
 
+    def q(
+        self,
+        action: str,
+        features: tuple[int, ...],
+        memory_features: tuple[int, ...],
+    ) -> float:
+        return self._q_with_fast(
+            action,
+            self.q_fast(action, features),
+            features,
+            memory_features,
+        )
+
     def choose(
         self,
         observation: dict,
@@ -246,17 +292,30 @@ class SparseFlyAgent:
         self._active_concepts = tuple(observation.get("memory_concepts", ()))
 
         if not explore:
+            fast_scores = self.q_fast_many(valid_actions, features)
             action = max(
                 valid_actions,
-                key=lambda a: (self.q(a, features, memory_features), a),
+                key=lambda a: (
+                    self._q_with_fast(
+                        a, fast_scores[a], features, memory_features
+                    ),
+                    a,
+                ),
             )
             return action, features
 
         if self.rng.random() < self.config.epsilon:
             return self.rng.choice(valid_actions), features
 
+        fast_scores = self.q_fast_many(valid_actions, features)
         scored = [
-            (self.q(a, features, memory_features), self.rng.random(), a)
+            (
+                self._q_with_fast(
+                    a, fast_scores[a], features, memory_features
+                ),
+                self.rng.random(),
+                a,
+            )
             for a in valid_actions
         ]
         return max(scored)[2], features
@@ -310,9 +369,8 @@ class SparseFlyAgent:
                 tuple(self.history) + (action,),
                 include_sensory=True,
             )
-            target = reward + self.config.gamma * max(
-                self.q_fast(a, next_features) for a in next_actions
-            )
+            next_scores = self.q_fast_many(next_actions, next_features)
+            target = reward + self.config.gamma * max(next_scores.values())
         delta = target - q_now
 
         decay = self.config.gamma * self.config.trace_decay
