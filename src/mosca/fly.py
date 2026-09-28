@@ -142,6 +142,37 @@ def memory_action_components(action: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
+_CONCEPT_MEMORY_COMPONENTS: dict[str, frozenset[str]] = {
+    "agg:sum": frozenset({"effect:add", "effect_rhs:x"}),
+    "agg:count": frozenset({"effect:add", "effect_rhs:1"}),
+    "agg:max": frozenset({
+        "control:conditional", "lhs:x", "cmp:>", "cond_rhs:acc",
+        "effect:set", "effect_rhs:x",
+    }),
+    "agg:min": frozenset({
+        "control:conditional", "lhs:x", "cmp:<", "cond_rhs:acc",
+        "effect:set", "effect_rhs:x",
+    }),
+    "filter:positive": frozenset({
+        "control:conditional", "lhs:x", "cmp:>", "cond_rhs:0",
+        "effect:set", "effect_rhs:0",
+    }),
+    "filter:negative": frozenset({
+        "control:conditional", "lhs:x", "cmp:<", "cond_rhs:0",
+        "effect:set", "effect_rhs:0",
+    }),
+    # "all" means no data-selection condition. Structural behavior remains in
+    # the fast/shared policy rather than being attached to this concept.
+    "filter:all": frozenset(),
+}
+
+
+def concept_accepts_memory_component(concept: str, component: str) -> bool:
+    """Whether one semantic motor component belongs in a concept bank."""
+    return component in _CONCEPT_MEMORY_COMPONENTS.get(concept, frozenset())
+
+
+
 class SparseFlyAgent:
     """Fast TD policy plus exact-context and compositional slow memories."""
 
@@ -348,6 +379,8 @@ class SparseFlyAgent:
         for concept in self._active_concepts:
             table = self.concept_weights.setdefault(concept, {})
             for model_key, eligibility in self.memory_traces.items():
+                if not concept_accepts_memory_component(concept, model_key):
+                    continue
                 weights = table.setdefault(model_key, {})
                 for raw_index in np.flatnonzero(eligibility):
                     index = int(raw_index)

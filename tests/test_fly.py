@@ -1,5 +1,5 @@
 from mosca.ast_env import ASTMaze
-from mosca.fly import FlyConfig, SparseEncoder, SparseFlyAgent, action_components, memory_action_components
+from mosca.fly import FlyConfig, SparseEncoder, SparseFlyAgent, action_components, concept_accepts_memory_component, memory_action_components
 from mosca.motor_env import MotorMaze
 from mosca.tasks import TASKS, TRANSFER_TASKS
 
@@ -115,3 +115,38 @@ def test_sparse_encoder_reuses_token_indices():
     second = enc._indices("sense:test")
     assert first is second
     assert len(enc._index_cache) == 1
+
+
+def test_concept_memory_routes_only_relevant_motor_factors():
+    assert concept_accepts_memory_component("agg:sum", "effect:add")
+    assert concept_accepts_memory_component("agg:sum", "effect_rhs:x")
+    assert not concept_accepts_memory_component("agg:sum", "cond_rhs:0")
+    assert not concept_accepts_memory_component("agg:sum", "exact:AUG:acc+=x")
+
+    assert concept_accepts_memory_component("agg:count", "effect_rhs:1")
+    assert not concept_accepts_memory_component("agg:count", "cond_rhs:0")
+
+    assert concept_accepts_memory_component("filter:positive", "cmp:>")
+    assert concept_accepts_memory_component("filter:positive", "cond_rhs:0")
+    assert concept_accepts_memory_component("filter:positive", "effect_rhs:0")
+    assert not concept_accepts_memory_component("filter:positive", "effect_rhs:1")
+    assert not concept_accepts_memory_component("filter:positive", "exact:WHEN:x>0:INC1")
+
+    assert concept_accepts_memory_component("agg:max", "cond_rhs:acc")
+    assert concept_accepts_memory_component("agg:max", "effect_rhs:x")
+    assert not concept_accepts_memory_component("agg:max", "effect_rhs:xs[0]")
+
+
+def test_concept_consolidation_excludes_exact_source_actions():
+    agent = SparseFlyAgent(
+        FlyConfig(consolidation_rate=1.0, slow_mix=0.45, consolidation_threshold=-1.0),
+        seed=3,
+    )
+    env = MotorMaze(TASKS["count_positive"])
+    agent.begin_episode()
+    obs = env.observe()
+    action, features = agent.choose(obs, env.valid_actions())
+    next_obs, reward, _, _ = env.step(action)
+    agent.learn(features, action, max(reward, 0.0), next_obs, env.valid_actions(), True)
+    for concept_table in agent.concept_weights.values():
+        assert not any(key.startswith("exact:") for key in concept_table)
