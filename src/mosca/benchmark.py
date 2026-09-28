@@ -239,9 +239,9 @@ def motor_benchmark(episodes: int = 300, seed: int = 42) -> dict:
 
 
 def _motor_config(
-    role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
-    agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
-    filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
+    role_factor_mix: float = 0.0,
+    agg_factor_mix: float = 0.0,
+    filter_factor_mix: float = 0.0,
 ) -> FlyConfig:
     return FlyConfig(
         epsilon=0.30,
@@ -525,9 +525,9 @@ def transfer_suite(
     pretrain_episodes: int = 600,
     adapt_episodes: int = 250,
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
-    role_factor_mix: float = 0.0,
-    agg_factor_mix: float = 0.0,
-    filter_factor_mix: float = 0.0,
+    role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
+    agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
+    filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
 ) -> dict:
     """Pretrain once per seed, then test several held-out compositions."""
 
