@@ -1,0 +1,42 @@
+name: role-factor-sweep
+
+on:
+  push:
+    branches:
+      - exp/role-factor-memory
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [baseline, roles_filter]
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - run: python -m pip install -e .[dev]
+      - name: Baseline
+        if: matrix.mode == 'baseline'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --factor-mix 0.0
+          --agg-factor-mix 0.0
+          --filter-factor-mix 0.0
+      - name: Roles + filters
+        if: matrix.mode == 'roles_filter'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --factor-mix 0.75
+          --agg-factor-mix 0.0
+          --filter-factor-mix 0.75
