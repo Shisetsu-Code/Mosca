@@ -22,6 +22,7 @@ class FlyConfig:
     consolidation_rate: float = 0.0
     slow_mix: float = 0.0
     role_factor_mix: float = 0.0
+    filter_all_factor_mix: float = 0.0
     consolidation_threshold: float = 7.0
 
 
@@ -385,6 +386,18 @@ class SparseFlyAgent:
                     * role_mix
                     * (sum(role_values) / len(role_values))
                 )
+
+        filter_all_mix = min(
+            1.0, max(0.0, self.config.filter_all_factor_mix)
+        )
+        if filter_all_mix > 0.0 and "filter:all" in self._active_concepts:
+            table = self.factor_concept_weights.get("filter:all")
+            if table:
+                value = self._factor_table_q(
+                    "filter:all", table, action, memory_features
+                )
+                if value != 0.0:
+                    total += self.config.slow_mix * filter_all_mix * value
         return total
 
     def q(
@@ -482,7 +495,9 @@ class SparseFlyAgent:
 
         # Independent factor channel. It may learn silently while gated off.
         for concept in self._active_concepts:
-            if not concept.startswith("role:"):
+            if not (
+                concept.startswith("role:") or concept == "filter:all"
+            ):
                 continue
             table = self.factor_concept_weights.setdefault(concept, {})
             for model_key, eligibility in self.factor_memory_traces.items():
