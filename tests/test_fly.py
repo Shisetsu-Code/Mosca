@@ -79,7 +79,7 @@ def test_eligibility_traces_use_dense_numpy_vectors():
     import numpy as np
 
     agent = SparseFlyAgent(seed=5)
-    env = ASTMaze(TASKS["sum_list"])
+    env = MotorMaze(TASKS["sum_list"])
     obs = env.observe()
     action, features = agent.choose(obs, env.valid_actions())
     next_obs, reward, done, _ = env.step(action)
