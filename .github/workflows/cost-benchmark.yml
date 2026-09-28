@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - exp/resource-profile
+      - exp/hotpath-cache
   workflow_dispatch:
 
 jobs:
