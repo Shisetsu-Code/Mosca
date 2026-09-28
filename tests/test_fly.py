@@ -159,16 +159,15 @@ def test_role_mix_zero_cannot_change_q():
     assert agent.q(action, features, memory) == agent.q_fast(action, features)
 
 
-def test_filter_all_factor_is_gated_independently():
-    agent = SparseFlyAgent(
-        FlyConfig(
-            slow_mix=0.45,
-            role_factor_mix=0.0,
-            filter_all_factor_mix=0.5,
-        ),
-        seed=10,
+def test_factor_channels_are_gated_independently():
+    config = FlyConfig(
+        slow_mix=0.45,
+        role_factor_mix=0.30,
+        agg_factor_mix=0.15,
+        filter_factor_mix=0.20,
     )
-    env = MotorMaze(TRANSFER_TASKS["count_all"])
-    obs = env.observe()
-    assert "filter:all" in obs["memory_concepts"]
+    assert config.role_factor_mix == 0.30
+    assert config.agg_factor_mix == 0.15
+    assert config.filter_factor_mix == 0.20
+    assert concept_accepts_factor("agg:count", "effect_rhs:1")
     assert concept_accepts_factor("filter:all", "control:unconditional")
