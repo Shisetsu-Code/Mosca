@@ -36,9 +36,18 @@ def test_memory_concepts_compose_source_behaviors():
     assert "filter:positive" in task_memory_concepts(TASKS["count_positive"])
 
     expected = {
-        "sum_positive": {"agg:sum", "filter:positive"},
-        "count_all": {"agg:count", "filter:all"},
-        "max_positive_or_zero": {"agg:max", "filter:positive"},
+        "sum_positive": {
+            "agg:sum", "filter:positive",
+            "role:identity_zero", "role:list_reduce",
+        },
+        "count_all": {
+            "agg:count", "filter:all",
+            "role:identity_zero", "role:list_reduce",
+        },
+        "max_positive_or_zero": {
+            "agg:max", "filter:positive",
+            "role:identity_zero", "role:list_reduce",
+        },
     }
     for name, concepts in expected.items():
         assert concepts <= set(task_memory_concepts(TRANSFER_TASKS[name]))
@@ -66,3 +75,13 @@ def test_transfer_suite_smoke():
     assert set(result["targets"]) == set(TRANSFER_TASKS)
     assert set(result["summary"]) == set(TRANSFER_TASKS)
     assert len(result["runs"]) == 1
+
+
+def test_role_factor_mix_is_reported_by_suite():
+    result = transfer_suite(
+        pretrain_episodes=3,
+        adapt_episodes=2,
+        seeds=(0,),
+        role_factor_mix=0.25,
+    )
+    assert result["role_factor_mix"] == 0.25
