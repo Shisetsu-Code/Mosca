@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import random
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from .ast_env import ASTMaze
 from .fly import FlyConfig, SparseFlyAgent
@@ -514,11 +514,13 @@ def transfer_suite(
     runs: list[dict] = []
 
     for seed in seeds:
+        # Source learning always uses the stable v0.9 policy. Factor memories
+        # still consolidate, but they are gated off until a novel target arrives.
         pretrained = SparseFlyAgent(
             _motor_config(
-                factor_mix,
-                agg_factor_mix=agg_factor_mix,
-                filter_factor_mix=filter_factor_mix,
+                0.0,
+                agg_factor_mix=0.0,
+                filter_factor_mix=0.0,
             ),
             seed=seed,
         )
@@ -538,14 +540,14 @@ def transfer_suite(
 
         for target_name, target in TRANSFER_TASKS.items():
             transfer_agent = copy.deepcopy(pretrained)
-            scratch_agent = SparseFlyAgent(
-                _motor_config(
-                    factor_mix,
-                    agg_factor_mix=agg_factor_mix,
-                    filter_factor_mix=filter_factor_mix,
-                ),
-                seed=seed,
+            target_config = replace(
+                transfer_agent.config,
+                factor_mix=factor_mix,
+                agg_factor_mix=agg_factor_mix,
+                filter_factor_mix=filter_factor_mix,
             )
+            transfer_agent.config = target_config
+            scratch_agent = SparseFlyAgent(target_config, seed=seed)
             transfer_zero = _zero_shot_summary(
                 copy.deepcopy(transfer_agent), target
             )
@@ -648,6 +650,7 @@ def transfer_suite(
         "factor_mix": factor_mix,
         "agg_factor_mix": agg_factor_mix,
         "filter_factor_mix": filter_factor_mix,
+        "novelty_gated": True,
         "seeds": list(seeds),
         "targets": list(TRANSFER_TASKS),
         "summary": summary,
