@@ -4,7 +4,17 @@ import argparse
 import json
 
 from .ast_env import ASTMaze
-from .benchmark import benchmark_json, motor_benchmark, motor_multiseed, transfer_benchmark, transfer_multiseed, transfer_suite
+from .benchmark import (
+    DEFAULT_TRANSFER_AGG_FACTOR_MIX,
+    DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
+    DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
+    benchmark_json,
+    motor_benchmark,
+    motor_multiseed,
+    transfer_benchmark,
+    transfer_multiseed,
+    transfer_suite,
+)
 from .grammar import rule_manifest
 from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
 from .resource import resource_benchmark
@@ -91,9 +101,21 @@ def main() -> None:
     suite.add_argument("--pretrain-episodes", type=int, default=600)
     suite.add_argument("--adapt-episodes", type=int, default=250)
     suite.add_argument("--seeds", default="0,1,2,3,4")
-    suite.add_argument("--role-factor-mix", type=float, default=0.0)
-    suite.add_argument("--agg-factor-mix", type=float, default=0.0)
-    suite.add_argument("--filter-factor-mix", type=float, default=0.0)
+    suite.add_argument(
+        "--role-factor-mix",
+        type=float,
+        default=DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
+    )
+    suite.add_argument(
+        "--agg-factor-mix",
+        type=float,
+        default=DEFAULT_TRANSFER_AGG_FACTOR_MIX,
+    )
+    suite.add_argument(
+        "--filter-factor-mix",
+        type=float,
+        default=DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
+    )
 
     mcts = sub.add_parser("mcts-benchmark", help="UCT baseline over the same MotorMaze")
     mcts.add_argument("--simulations", type=int, default=500)
