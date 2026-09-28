@@ -1,0 +1,46 @@
+name: curriculum-v11-sweep
+
+on:
+  push:
+    branches:
+      - exp/concept-curriculum-v11
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [core600, expanded600, expanded1000]
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - run: python -m pip install -e .[dev]
+      - name: core, fixed total budget
+        if: matrix.mode == 'core600'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --source-curriculum core
+      - name: expanded, fixed total budget
+        if: matrix.mode == 'expanded600'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --source-curriculum expanded
+      - name: expanded, matched per-source exposure
+        if: matrix.mode == 'expanded1000'
+        run: >-
+          mosca transfer-suite
+          --pretrain-episodes 1000
+          --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --source-curriculum expanded
