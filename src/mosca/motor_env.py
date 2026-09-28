@@ -5,6 +5,7 @@ import copy
 import warnings
 from dataclasses import dataclass
 
+from .metrics import WorkMetrics
 from .sensory import task_memory_concepts, task_sensory_tokens
 from .tasks import Task
 
@@ -37,9 +38,11 @@ class MotorMaze:
     CMPS = (">", "<", "==")
     CONSTS = (-1, 0, 1)
 
-    def __init__(self, task: Task, max_steps: int = 12):
+    def __init__(self, task: Task, max_steps: int = 12, metrics: WorkMetrics | None = None):
         self.task = task
         self.max_steps = max_steps
+        self.metrics = metrics if metrics is not None else WorkMetrics()
+        self.metrics.environments_created += 1
         self.sensory = task_sensory_tokens(task)
         self.memory_concepts = task_memory_concepts(task)
         self.reset()
@@ -175,13 +178,14 @@ class MotorMaze:
 
         fill_empty(root)
         root.append(ast.Return(ast.Name("acc", ast.Load())))
-        self._probe_cache = self._evaluate_root(root).score
+        self._probe_cache = self._evaluate_root(root, kind="probe").score
         return self._probe_cache
 
     def step(self, action: str) -> tuple[dict, float, bool, dict]:
         if action not in self.valid_actions():
             raise ValueError(f"invalid action {action}")
         before_probe = self.probe_score()
+        self.metrics.state_transitions += 1
         self.actions.append(action)
         reward = -0.02
         info: dict = {}
@@ -259,8 +263,15 @@ class MotorMaze:
     def source(self) -> str:
         return ast.unparse(self.module()) + "\n"
 
-    def _evaluate_root(self, root: list[ast.stmt], cases=None) -> Evaluation:
+    def _evaluate_root(self, root: list[ast.stmt], cases=None, kind: str = "visible") -> Evaluation:
         cases = self.task.cases if cases is None else cases
+        self.metrics.compile_calls += 1
+        if kind == "probe":
+            self.metrics.probe_evaluations += 1
+        elif kind == "hidden":
+            self.metrics.hidden_evaluations += 1
+        else:
+            self.metrics.visible_evaluations += 1
         fn = ast.FunctionDef(
             "solve",
             ast.arguments(
@@ -283,6 +294,10 @@ class MotorMaze:
         passed = 0
         error = None
         for case in cases:
+            if kind == "hidden":
+                self.metrics.hidden_case_executions += 1
+            else:
+                self.metrics.visible_case_executions += 1
             try:
                 got = solve(*case.args)
                 if got == case.expected:
@@ -295,8 +310,8 @@ class MotorMaze:
         return Evaluation(True, passed, len(cases), error)
 
     def evaluate(self) -> Evaluation:
-        return self._evaluate_root(self.root)
+        return self._evaluate_root(self.root, kind="visible")
 
     def evaluate_hidden(self) -> Evaluation:
         cases = self.task.hidden_cases or self.task.cases
-        return self._evaluate_root(self.root, cases)
+        return self._evaluate_root(self.root, cases, kind="hidden")

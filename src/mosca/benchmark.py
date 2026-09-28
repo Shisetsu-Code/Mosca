@@ -231,10 +231,10 @@ def _motor_config() -> FlyConfig:
     )
 
 
-def _learn_motor_episode(agent: SparseFlyAgent, task: Task, max_steps: int = 8) -> tuple[float, float]:
+def _learn_motor_episode(agent: SparseFlyAgent, task: Task, max_steps: int = 8, metrics=None) -> tuple[float, float]:
     from .motor_env import MotorMaze
 
-    env = MotorMaze(task, max_steps=max_steps)
+    env = MotorMaze(task, max_steps=max_steps, metrics=metrics)
     agent.begin_episode()
     observation = env.observe()
     while not env.done:

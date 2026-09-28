@@ -4,6 +4,7 @@ import math
 import random
 from dataclasses import asdict, dataclass
 
+from .metrics import WorkMetrics
 from .motor_env import MotorMaze
 from .tasks import TASKS, TRANSFER_TASKS, Task
 
@@ -18,10 +19,11 @@ class MCTSResult:
     best_hidden_score: float
     actions: tuple[str, ...] | None
     source: str | None
+    work: dict[str, int]
 
 
-def replay(task: Task, actions: tuple[str, ...], max_steps: int = 8) -> MotorMaze:
-    env = MotorMaze(task, max_steps=max_steps)
+def replay(task: Task, actions: tuple[str, ...], max_steps: int = 8, metrics: WorkMetrics | None = None) -> MotorMaze:
+    env = MotorMaze(task, max_steps=max_steps, metrics=metrics)
     for action in actions:
         if env.done:
             break
@@ -43,6 +45,7 @@ def mcts_solve(
     seed: int = 0,
     max_steps: int = 8,
     exploration: float = 1.4,
+    stop_on_generalizing: bool = False,
 ) -> MCTSResult:
     """UCT search over the same semantic action space used by SparseFlyAgent.
 
@@ -51,6 +54,7 @@ def mcts_solve(
     """
 
     rng = random.Random(seed)
+    metrics = WorkMetrics()
     visits: dict[tuple[str, ...], int] = {(): 0}
     values: dict[tuple[str, ...], float] = {(): 0.0}
     untried: dict[tuple[str, ...], list[str]] = {}
@@ -64,7 +68,7 @@ def mcts_solve(
     for simulation in range(1, simulations + 1):
         prefix: tuple[str, ...] = ()
         path = [prefix]
-        env = replay(task, prefix, max_steps=max_steps)
+        env = replay(task, prefix, max_steps=max_steps, metrics=metrics)
 
         # Selection + one-node expansion.
         while not env.done:
@@ -83,7 +87,7 @@ def mcts_solve(
                 path.append(prefix)
                 visits.setdefault(prefix, 0)
                 values.setdefault(prefix, 0.0)
-                env = replay(task, prefix, max_steps=max_steps)
+                env = replay(task, prefix, max_steps=max_steps, metrics=metrics)
                 break
 
             parent_visits = max(1, visits.get(prefix, 0))
@@ -102,7 +106,7 @@ def mcts_solve(
             path.append(prefix)
             visits.setdefault(prefix, 0)
             values.setdefault(prefix, 0.0)
-            env = replay(task, prefix, max_steps=max_steps)
+            env = replay(task, prefix, max_steps=max_steps, metrics=metrics)
 
         # Random rollout from the expanded/selected state.
         rollout = prefix
@@ -135,6 +139,8 @@ def mcts_solve(
                 best_hidden = 1.0
                 best_actions = rollout
                 best_source = env.source()
+                if stop_on_generalizing:
+                    break
 
         # Hidden score is intentionally excluded from the backed-up reward.
         reward = train_score
@@ -151,6 +157,7 @@ def mcts_solve(
         best_hidden_score=best_hidden,
         actions=best_actions,
         source=best_source,
+        work=metrics.as_dict(),
     )
 
 
