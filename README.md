@@ -2,7 +2,7 @@
 
 Experimental program synthesis inspired by navigation and reward learning in *Drosophila*.
 
-Mosca treats programming as navigation through a constrained state space. The learner never writes arbitrary Python text: CPython owns syntax/AST legality, while the learner selects legal structural or semantic actions.
+Mosca treats programming as navigation through a constrained state space rather than next-token prediction. The learner never emits arbitrary Python text: CPython owns syntax and AST legality, while the learner selects legal structural or semantic actions.
 
 ## Runtime
 
@@ -23,16 +23,30 @@ sparse recurrent policy
              ↓
        shared motor semantics
       ↓
-semantic MotorMaze / AST
+MotorMaze / typed AST
       ↓
 CPython compile + execute
       ↓
 visible-test reward
 ```
 
-The fast policy keeps the stable v0.6 representation. Slow concept memory is deliberately separated: it uses a task-independent state encoding and semantic motor effects such as `add x`, `add 1`, and `set x`.
+The implementation uses NumPy dense fast-weight / eligibility vectors, while contextual and conceptual long-term memories remain sparse.
 
-Stable I/O relations infer memory concepts such as:
+## Environments
+
+1. `PythonMaze`: original hand-shaped baseline.
+2. `ASTMaze`: generic typed-hole grammar.
+3. `MotorMaze`: hierarchical semantic action space.
+
+The first benchmark programs require about five motor decisions versus roughly 18–26 low-level AST decisions.
+
+## Hidden-test policy
+
+Training reward and probe use only visible cases. Hidden cases never influence action selection, TD updates, MCTS backpropagation, or stopping decisions in the fixed-budget search benchmarks. They are used only to evaluate completed visible solutions.
+
+## Concept memory
+
+Stable relations inferred from visible input/output examples produce concepts such as:
 
 ```text
 agg:sum
@@ -43,52 +57,64 @@ filter:positive
 filter:negative
 ```
 
-Thus a new task can query memories acquired under different source tasks without inserting the task name into the network.
+The model does not receive task names such as `sum_list` or `count_positive` as neural input.
 
-## Environments
+## Multi-target transfer suite
 
-1. `PythonMaze`: original hand-shaped baseline.
-2. `ASTMaze`: generic low-level grammar with typed holes.
-3. `MotorMaze`: hierarchical semantic action space.
+Source tasks remain:
 
-The first benchmark solutions require about five motor decisions, versus roughly 18–26 low-level AST decisions.
+- `sum_list`
+- `count_positive`
+- `max_list`
 
-## Hidden evaluation
+Held-out compositions:
 
-Reward/probe uses only visible training cases. Hidden cases are evaluated only after a complete candidate solution is found.
+| Target | Recombined concepts |
+|---|---|
+| `sum_positive` | `agg:sum` + `filter:positive` |
+| `count_all` | `agg:count` + `filter:all` |
+| `max_positive_or_zero` | `agg:max` + `filter:positive` |
 
-## Compositional transfer
+Five deterministic seeds, 600 source-pretraining episodes and 250 target-adaptation episodes:
 
-Held-out task:
+| Target | Transfer success | Scratch success | Mean first solution* | Scratch mean* | Transfer visible-oracle calls* | Scratch calls* | Zero-shot |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `sum_positive` | 5/5 | 4/5 | **49.0** | 142.0 | **278.0** | 622.75 | **1/5** |
+| `count_all` | 2/5 | 1/5 | **4.0** | 77.0 | **24.0** | 253.0 | 0/5 |
+| `max_positive_or_zero` | 5/5 | 5/5 | 72.4 | 78.0 | 422.8 | **299.0** | 0/5 |
 
-```python
-def solve(xs):
-    acc = 0
-    for x in xs:
-        if x > 0:
-            acc += x
-    return acc
-```
+* Means are over seeds that found a hidden-generalizing solution, so success rate must be read with the mean.
 
-The target combines `agg:sum` learned from `sum_list` and `filter:positive` learned from `count_positive`.
+Transfer is useful, but robust zero-shot composition is not solved yet.
 
-Deterministic five-seed benchmark:
+## MCTS baseline
 
-- 600 source-pretraining episodes.
-- 250 target-adaptation episodes.
-- Seeds 0–4.
-- Zero-shot is one deterministic greedy rollout on a copy of the agent, so it cannot perturb later adaptation.
+Mosca includes UCT/MCTS over exactly the same `MotorMaze`.
 
-| Metric | Pretrained | Scratch |
+Five-seed, 500-simulation baseline:
+
+| Task | MCTS success | Mean first hidden-generalizing candidate |
 |---|---:|---:|
-| Seeds finding hidden-generalizing solution during adaptation | 5/5 | 4/5 |
-| Mean first-generalizing episode | **49.0** | 142.0 |
-| Best first-generalizing episode | **1** | 87 |
-| Generalizing solutions during adaptation | 335 | 226 |
-| Paired first-solution wins | **5** | 0 |
-| Deterministic zero-shot successes | **1/5** | 0/5 |
+| `sum_list` | 5/5 | 44.8 |
+| `count_positive` | 5/5 | 52.6 |
+| `max_list` | 5/5 | 120.4 |
+| `sum_positive` | 5/5 | 65.2 |
 
-The zero-shot result is preliminary: one of five pretrained seeds synthesized the correct hidden-generalizing program without any target-task weight update. It is evidence that the shared memory path can compose previously learned factors, not yet evidence of robust zero-shot program synthesis.
+For `sum_positive`, MCTS reaches the first hidden-generalizing candidate after about **448.6 visible-oracle calls** on average. The pretrained Mosca agent needs about **278.0 target-task oracle calls**, but Mosca first pays a separate source-pretraining cost. The repository therefore reports both marginal target cost and pretraining cost instead of equating one MCTS simulation with one learning episode.
+
+## Performance
+
+The original Python implementation spent most of its CPU time repeatedly scoring sparse action components. The current hot path uses:
+
+- dense NumPy fast weights;
+- dense vectorized eligibility traces;
+- batched shared-component Q evaluation;
+- cached sparse encoder token hashes;
+- probe evaluation without AST `deepcopy`.
+
+On the controlled cProfile workload (`150` pretraining + `80` adaptation episodes), cumulative runtime fell from about **22.34 s to 2.29 s** on the same GitHub Actions runner class.
+
+In the five-seed resource benchmark, target adaptation preserves exactly the same episode/oracle counts while substantially reducing CPU cost. Traced peak memory remains in the single-digit MiB range at the current 8,192-unit expansion width.
 
 ## Run
 
@@ -98,35 +124,42 @@ pytest -q
 
 mosca runtime
 mosca rules
-mosca motor-benchmark --episodes 300 --seed 42 --require-fly-solved --require-fly-generalized
-mosca motor-multiseed --episodes 75 --seeds 0,1,2
-mosca transfer-benchmark --pretrain-episodes 900 --adapt-episodes 300 --seed 42
-mosca transfer-multiseed --pretrain-episodes 600 --adapt-episodes 250 --seeds 0,1,2,3,4
+
+mosca motor-benchmark \
+  --episodes 300 \
+  --seed 42 \
+  --require-fly-solved \
+  --require-fly-generalized
+
+mosca transfer-suite \
+  --pretrain-episodes 600 \
+  --adapt-episodes 250 \
+  --seeds 0,1,2,3,4
+
+mosca mcts-multiseed \
+  --simulations 500 \
+  --seeds 0,1,2,3,4
+
+mosca resource-benchmark \
+  --seed 0 \
+  --pretrain-episodes 600 \
+  --adapt-episodes 250 \
+  --mcts-simulations 500
 ```
+
+## Current conclusions
+
+- Hierarchical motor actions are dramatically easier to search than raw AST-node actions.
+- Sparse recurrent learning reliably transfers useful structure to unseen compositions.
+- Transfer can reduce target-task oracle calls relative to scratch and, on `sum_positive`, relative to MCTS.
+- Pretraining is not free; MCTS remains cheaper for a single isolated problem.
+- Simply increasing concept-memory influence does not make zero-shot robust.
+- Hard factor-specific memory routing improves some targets but hurts others, so concept decomposition needs a hybrid or learned gating mechanism.
 
 ## Next milestones
 
-1. Instrument exact visible-test/oracle calls for compute-normalized Fly vs MCTS comparisons.
-2. Add several independent held-out compositions and require zero-shot transfer across them.
-3. Learn motor options instead of predefining the `WHEN` family.
-4. Add a GRU baseline with matched action/state access.
-5. Expand to multiple variables, filters/maps, nested loops and multiple functions.
-6. Only after controlled baselines, test FlyWire-derived connectivity motifs against matched synthetic sparse networks.
-
-
-## MCTS baseline
-
-Mosca now includes a UCT/MCTS baseline over exactly the same `MotorMaze`. MCTS receives the same legal actions and visible-test probe. Hidden cases never affect selection or backpropagation; the search executes its full fixed budget and hidden results are telemetry only.
-
-Five-seed benchmark, 500-simulation budget:
-
-| Task | MCTS success | Mean first hidden-generalizing candidate | Best | Worst |
-|---|---:|---:|---:|---:|
-| `sum_list` | 5/5 | 44.8 | 9 | 92 |
-| `count_positive` | 5/5 | 52.6 | 6 | 108 |
-| `max_list` | 5/5 | 120.4 | 33 | 192 |
-| `sum_positive` | 5/5 | 65.2 | 31 | 124 |
-
-This is a strong baseline. The pretrained Mosca agent reaches its first hidden-generalizing `sum_positive` solution at 49.0 target-adaptation episodes on average, versus 65.2 MCTS simulations, but Mosca first spent 600 source-pretraining episodes. Episode count and MCTS simulation count are not yet equivalent compute measures because MCTS replays prefixes and both systems invoke the visible-test probe internally.
-
-The next comparison therefore measures visible-test/oracle calls and executed program cases directly rather than treating an episode and a simulation as equal units.
+1. Hybrid broad + factor-specific concept memory with learned or validated gating.
+2. Learn motor options instead of predefining the `WHEN` family.
+3. Add a GRU baseline with matched state/action access.
+4. Expand to multiple variables, filters/maps, nested loops and multiple functions.
+5. Compare synthetic sparse topology against FlyWire-derived motifs only after the controlled baselines are strong.
