@@ -210,3 +210,21 @@ def test_group_specific_factor_mix_overrides_global_mix():
     assert agent._factor_mix_for_concept("agg:max") == 0.75
     assert agent._factor_mix_for_concept("filter:positive") == 0.0
     assert agent._factor_mix_for_concept("other") == 0.25
+
+
+def test_role_factor_routing_uses_identity_and_structure_only():
+    assert concept_accepts_factor("role:identity_zero", "control:init")
+    assert concept_accepts_factor("role:identity_zero", "effect_rhs:0")
+    assert not concept_accepts_factor("role:identity_zero", "effect_rhs:x")
+    assert concept_accepts_factor("role:list_reduce", "control:loop")
+    assert concept_accepts_factor("role:list_reduce", "control:return")
+    assert not concept_accepts_factor("role:list_reduce", "effect:add")
+
+
+def test_memory_components_distinguish_init_unconditional_and_conditional():
+    init = set(memory_action_components("SET:acc=0"))
+    plain = set(memory_action_components("AUG:acc+=1"))
+    cond = set(memory_action_components("WHEN:x>0:INC1"))
+    assert "control:init" in init
+    assert "control:unconditional" in plain
+    assert "control:conditional" in cond
