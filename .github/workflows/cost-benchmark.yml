@@ -6,6 +6,7 @@ on:
       - exp/resource-profile
       - exp/numpy-fastweights
       - exp/numpy-traces
+      - exp/no-deepcopy-clean
   workflow_dispatch:
 
 jobs:
