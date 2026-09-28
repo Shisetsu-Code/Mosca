@@ -7,6 +7,7 @@ from .ast_env import ASTMaze
 from .benchmark import benchmark_json, motor_benchmark, motor_multiseed, transfer_benchmark, transfer_multiseed
 from .grammar import rule_manifest
 from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
+from .resource import resource_benchmark
 from .runtime import runtime_status
 from .motor_env import MotorMaze
 from .mcts import mcts_benchmark, mcts_multiseed
@@ -92,6 +93,13 @@ def main() -> None:
     mcts_multi.add_argument("--simulations", type=int, default=500)
     mcts_multi.add_argument("--seeds", default="0,1,2,3,4")
 
+    resources = sub.add_parser("resource-benchmark", help="profile cost to first hidden-generalizing solution")
+    resources.add_argument("--seed", type=int, default=0)
+    resources.add_argument("--pretrain-episodes", type=int, default=600)
+    resources.add_argument("--adapt-episodes", type=int, default=250)
+    resources.add_argument("--mcts-simulations", type=int, default=500)
+    resources.add_argument("--random-episodes", type=int, default=500)
+
     args = parser.parse_args()
 
     if args.command == "runtime":
@@ -154,6 +162,15 @@ def main() -> None:
     if args.command == "mcts-multiseed":
         seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
         print(json.dumps(mcts_multiseed(args.simulations, seeds), indent=2, sort_keys=True))
+        return
+    if args.command == "resource-benchmark":
+        print(json.dumps(resource_benchmark(
+            seed=args.seed,
+            pretrain_episodes=args.pretrain_episodes,
+            adapt_episodes=args.adapt_episodes,
+            mcts_simulations=args.mcts_simulations,
+            random_episodes=args.random_episodes,
+        ), indent=2, sort_keys=True))
         return
 
     result = bfs_solve(TASKS[args.task], max_depth=args.depth)

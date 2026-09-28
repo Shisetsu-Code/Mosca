@@ -54,6 +54,7 @@ def mcts_solve(
     seed: int = 0,
     max_steps: int = 8,
     exploration: float = 1.4,
+    stop_on_generalizing: bool = False,
 ) -> MCTSResult:
     """UCT search over the same semantic action space used by SparseFlyAgent.
 
@@ -73,8 +74,10 @@ def mcts_solve(
     first_generalizing_at: int | None = None
     first_generalizing_oracle: dict[str, int] | None = None
     counter = OracleCounter()
+    executed_simulations = 0
 
     for simulation in range(1, simulations + 1):
+        executed_simulations = simulation
         prefix: tuple[str, ...] = ()
         path = [prefix]
         env = replay(task, prefix, max_steps=max_steps, counter=counter)
@@ -156,9 +159,12 @@ def mcts_solve(
             visits[node] = visits.get(node, 0) + 1
             values[node] = values.get(node, 0.0) + reward
 
+        if stop_on_generalizing and first_generalizing_at is not None:
+            break
+
     return MCTSResult(
         task=task.name,
-        simulations=simulations,
+        simulations=executed_simulations,
         first_visible_at=first_visible_at,
         first_generalizing_at=first_generalizing_at,
         best_train_score=best_train,
