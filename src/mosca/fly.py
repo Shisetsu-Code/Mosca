@@ -28,12 +28,19 @@ class SparseEncoder:
     def __init__(self, width: int = 8192, hashes_per_token: int = 4):
         self.width = width
         self.hashes_per_token = hashes_per_token
+        self._index_cache: dict[str, tuple[int, ...]] = {}
 
-    def _indices(self, token: str) -> Iterable[int]:
+    def _indices(self, token: str) -> tuple[int, ...]:
+        cached = self._index_cache.get(token)
+        if cached is not None:
+            return cached
         digest = hashlib.blake2b(token.encode(), digest_size=32, person=b"mosca-kc").digest()
-        for i in range(self.hashes_per_token):
-            start = i * 4
-            yield int.from_bytes(digest[start:start + 4], "little") % self.width
+        indices = tuple(
+            int.from_bytes(digest[i * 4:i * 4 + 4], "little") % self.width
+            for i in range(self.hashes_per_token)
+        )
+        self._index_cache[token] = indices
+        return indices
 
     def encode(
         self,
