@@ -171,3 +171,54 @@ def test_factor_channels_are_gated_independently():
     assert config.filter_factor_mix == 0.20
     assert concept_accepts_factor("agg:count", "effect_rhs:1")
     assert concept_accepts_factor("filter:all", "control:unconditional")
+
+
+def test_filter_concepts_do_not_use_broad_memory_q():
+    agent = SparseFlyAgent(
+        FlyConfig(slow_mix=1.0, filter_factor_mix=0.0),
+        seed=20,
+    )
+    env = MotorMaze(TRANSFER_TASKS["sum_negative"])
+    obs = env.observe()
+    features = agent.features(obs)
+    memory = agent.memory_features(obs)
+    action = "WHEN:x<0:ADDX"
+
+    agent._active_context = "none"
+    agent._active_concepts = ("filter:negative",)
+    agent.concept_weights["filter:negative"] = {
+        "exact:" + action: {memory[0]: 1000.0},
+        "control:conditional": {memory[0]: 1000.0},
+    }
+    assert agent.q(action, features, memory) == agent.q_fast(action, features)
+
+
+def test_filter_concepts_consolidate_only_into_factor_memory():
+    import numpy as np
+
+    agent = SparseFlyAgent(
+        FlyConfig(consolidation_rate=1.0),
+        seed=21,
+    )
+    agent._active_concepts = ("agg:count", "filter:negative")
+    broad = np.zeros(agent.config.expansion_width, dtype=np.float64)
+    factor = np.zeros(agent.config.expansion_width, dtype=np.float64)
+    broad[3] = 1.0
+    factor[3] = 1.0
+    agent.memory_traces = {"effect:add": broad}
+    agent.factor_memory_traces = {
+        "control:conditional": factor.copy(),
+        "lhs:x": factor.copy(),
+        "cmp:<": factor.copy(),
+        "cond_rhs:0": factor.copy(),
+        "effect:add": factor.copy(),
+        "effect_rhs:1": factor.copy(),
+    }
+
+    agent._consolidate_concepts()
+
+    assert "agg:count" in agent.concept_weights
+    assert "filter:negative" not in agent.concept_weights
+    assert "filter:negative" in agent.factor_concept_weights
+    assert "control:conditional" in agent.factor_concept_weights["filter:negative"]
+    assert "effect:add" not in agent.factor_concept_weights["filter:negative"]
