@@ -3,7 +3,7 @@ name: group-factor-sweep
 on:
   push:
     branches:
-      - exp/group-factor-routing
+      - exp/novelty-factor-gate
   workflow_dispatch:
 
 jobs:
