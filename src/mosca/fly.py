@@ -5,6 +5,7 @@ import math
 import random
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable
 
 
@@ -27,11 +28,13 @@ class SparseEncoder:
         self.width = width
         self.hashes_per_token = hashes_per_token
 
-    def _indices(self, token: str) -> Iterable[int]:
+    @lru_cache(maxsize=4096)
+    def _indices(self, token: str) -> tuple[int, ...]:
         digest = hashlib.blake2b(token.encode(), digest_size=32, person=b"mosca-kc").digest()
-        for i in range(self.hashes_per_token):
-            start = i * 4
-            yield int.from_bytes(digest[start:start + 4], "little") % self.width
+        return tuple(
+            int.from_bytes(digest[i * 4:i * 4 + 4], "little") % self.width
+            for i in range(self.hashes_per_token)
+        )
 
     def encode(
         self,
@@ -59,6 +62,7 @@ class SparseEncoder:
         return tuple(sorted(active))
 
 
+@lru_cache(maxsize=256)
 def action_components(action: str) -> tuple[str, ...]:
     """Original fast-policy factorization. Kept stable for baseline behavior."""
     keys = [f"exact:{action}"]
@@ -92,6 +96,7 @@ def action_components(action: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
+@lru_cache(maxsize=256)
 def memory_action_components(action: str) -> tuple[str, ...]:
     """Semantic factorization used only by task-independent concept memory."""
     keys = [f"exact:{action}"]
