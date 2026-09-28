@@ -116,3 +116,18 @@ def test_validated_transfer_defaults_are_enabled():
     assert result["role_factor_mix"] == DEFAULT_TRANSFER_ROLE_FACTOR_MIX == 0.30
     assert result["agg_factor_mix"] == DEFAULT_TRANSFER_AGG_FACTOR_MIX == 0.15
     assert result["filter_factor_mix"] == DEFAULT_TRANSFER_FILTER_FACTOR_MIX == 0.0
+
+
+def test_adaptive_transfer_suite_reports_gate_controls_and_final_gates():
+    result = transfer_suite(
+        pretrain_episodes=3,
+        adapt_episodes=2,
+        seeds=(0,),
+        adaptive_factor_gates=True,
+        gate_alpha=0.01,
+    )
+    assert result["adaptive_factor_gates"] is True
+    assert result["gate_alpha"] == 0.01
+    target = result["runs"][0]["targets"]["sum_positive"]["transfer"]
+    assert set(target["factor_gates"]) == {"role", "agg", "filter"}
+    assert all(0.0 <= value <= 1.0 for value in target["factor_gates"].values())
