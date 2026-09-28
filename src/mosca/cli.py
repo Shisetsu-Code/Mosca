@@ -92,6 +92,8 @@ def main() -> None:
     suite.add_argument("--adapt-episodes", type=int, default=250)
     suite.add_argument("--seeds", default="0,1,2,3,4")
     suite.add_argument("--factor-mix", type=float, default=0.0)
+    suite.add_argument("--agg-factor-mix", type=float, default=None)
+    suite.add_argument("--filter-factor-mix", type=float, default=None)
 
     mcts = sub.add_parser("mcts-benchmark", help="UCT baseline over the same MotorMaze")
     mcts.add_argument("--simulations", type=int, default=500)
@@ -172,6 +174,8 @@ def main() -> None:
                 args.adapt_episodes,
                 seeds,
                 args.factor_mix,
+                args.agg_factor_mix,
+                args.filter_factor_mix,
             ),
             indent=2,
             sort_keys=True,
