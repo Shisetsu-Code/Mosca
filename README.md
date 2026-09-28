@@ -107,7 +107,7 @@ mosca transfer-multiseed --pretrain-episodes 600 --adapt-episodes 250 --seeds 0,
 ## Next milestones
 
 1. Instrument exact visible-test/oracle calls for compute-normalized Fly vs MCTS comparisons.
-2. Add several independent held-out compositions and require zero-shot transfer across them.
+2. Route slow memory by concept-relevant motor factors and test whether zero-shot becomes robust across the transfer suite.
 3. Learn motor options instead of predefining the `WHEN` family.
 4. Add a GRU baseline with matched action/state access.
 5. Expand to multiple variables, filters/maps, nested loops and multiple functions.
@@ -130,3 +130,40 @@ Five-seed benchmark, 500-simulation budget:
 This is a strong baseline. The pretrained Mosca agent reaches its first hidden-generalizing `sum_positive` solution at 49.0 target-adaptation episodes on average, versus 65.2 MCTS simulations, but Mosca first spent 600 source-pretraining episodes. Episode count and MCTS simulation count are not yet equivalent compute measures because MCTS replays prefixes and both systems invoke the visible-test probe internally.
 
 The next comparison therefore measures visible-test/oracle calls and executed program cases directly rather than treating an episode and a simulation as equal units.
+
+
+## Multi-target transfer suite (v0.9)
+
+The transfer test now contains three held-out compositions while keeping the three source tasks unchanged:
+
+| Held-out task | Recombined concepts |
+|---|---|
+| `sum_positive` | `agg:sum` + `filter:positive` |
+| `count_all` | `agg:count` + `filter:all` |
+| `max_positive_or_zero` | `agg:max` + `filter:positive` |
+
+The `max_positive_or_zero` concept detector is used only for slow concept memory; it is deliberately excluded from the fast sensory signature, so adding this benchmark does not alter the established source-task representation.
+
+Five seeds, 600 source-pretraining episodes, 250 adaptation episodes:
+
+| Target | Transfer success | Scratch success | Mean first solution* | Scratch mean* | Transfer oracle calls* | Scratch oracle calls* | Paired W-L-T |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `sum_positive` | 5/5 | 4/5 | **49.0** | 142.0 | **278.0** | 622.75 | **5-0-0** |
+| `count_all` | 2/5 | 1/5 | **4.0** | 77.0 | **24.0** | 253.0 | 2-1-2 |
+| `max_positive_or_zero` | 5/5 | 5/5 | 72.4 | 78.0 | 422.8 | **299.0** | 3-2-0 |
+
+* Means are over seeds that found a hidden-generalizing solution, so success rate must be read alongside the mean.
+
+Deterministic zero-shot remains weak: `sum_positive` succeeds in 1/5 pretrained seeds and 0/5 scratch seeds; the other two targets are 0/5. The suite therefore shows useful transfer, but not robust general composition.
+
+The failure pattern is informative. The current concept memory consolidates an entire successful trajectory under every active concept. That can entangle source-specific choices: for example, `agg:max` can carry the `xs[0]` initialization from `max_list`, while `max_positive_or_zero` needs a zero identity. The next architecture experiment routes only concept-relevant motor factors into each slow-memory bank instead of sharing whole trajectories.
+
+## Performance
+
+The hot policy path now uses NumPy dense fast-weight vectors and dense eligibility traces; contextual/concept memories remain sparse. On the same GitHub Actions runner class:
+
+- `transfer-benchmark 900+300`: about **26 s → 10 s**.
+- five-seed `transfer-multiseed 600+250`: about **107 s → 42 s**.
+- the controlled cProfile workload (`150+80`) fell from **22.34 s → 5.73 s**.
+
+The dense traces increase traced peak memory into the single-digit MiB range, which is acceptable at the current 8,192-unit expansion width. The optimization changes representation and execution cost, not reward, action space, or hidden-test policy.
