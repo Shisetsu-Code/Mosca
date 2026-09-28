@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        filter_mix: [0.10, 0.25, 0.50, 1.00]
+        mastery: [20, 40, 80]
         seed: [0, 1, 2, 3, 4]
     runs-on: ubuntu-latest
     steps:
@@ -23,7 +23,8 @@ jobs:
       - run: >-
           mosca modular-transfer-suite
           --core-pretrain-episodes 600
-          --module-episodes 200
+          --module-max-episodes 600
+          --module-target-visible ${{ matrix.mastery }}
           --adapt-episodes 250
           --seeds ${{ matrix.seed }}
-          --filter-factor-mix ${{ matrix.filter_mix }}
+          --filter-factor-mix 0.25
