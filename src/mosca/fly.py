@@ -7,6 +7,8 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Iterable
 
+import numpy as np
+
 
 @dataclass(frozen=True)
 class FlyConfig:
@@ -140,7 +142,7 @@ class SparseFlyAgent:
         self.config = config or FlyConfig()
         self.encoder = SparseEncoder(self.config.expansion_width, self.config.hashes_per_token)
         self.rng = random.Random(seed)
-        self.weights: dict[str, dict[int, float]] = defaultdict(dict)
+        self.weights: dict[str, np.ndarray] = {}
         self.slow_weights: dict[str, dict[str, dict[int, float]]] = {}
         self.concept_weights: dict[str, dict[str, dict[int, float]]] = {}
         self._active_context = "global"
@@ -184,8 +186,21 @@ class SparseFlyAgent:
             total += sum(weights.get(i, 0.0) for i in features)
         return total / math.sqrt(max(1, len(features) * len(keys)))
 
+    def _fast_table(self, key: str) -> np.ndarray:
+        table = self.weights.get(key)
+        if table is None:
+            table = np.zeros(self.config.expansion_width, dtype=np.float64)
+            self.weights[key] = table
+        return table
+
     def q_fast(self, action: str, features: tuple[int, ...]) -> float:
-        return self._table_q(self.weights, action, features, action_components)
+        keys = action_components(action)
+        total = 0.0
+        for key in keys:
+            weights = self.weights.get(key)
+            if weights is not None:
+                total += float(np.take(weights, features).sum())
+        return total / math.sqrt(max(1, len(features) * len(keys)))
 
     def q(
         self,
@@ -252,7 +267,8 @@ class SparseFlyAgent:
         for (model_key, index), eligibility in self.traces.items():
             if eligibility == 0:
                 continue
-            fast = self.weights.get(model_key, {}).get(index, 0.0)
+            fast_table = self.weights.get(model_key)
+            fast = float(fast_table[index]) if fast_table is not None else 0.0
             slow_table = table.setdefault(model_key, {})
             slow = slow_table.get(index, 0.0)
             gain = min(1.0, rate * abs(eligibility))
@@ -320,8 +336,8 @@ class SparseFlyAgent:
                 self.memory_traces[key] = self.memory_traces.get(key, 0.0) + memory_scale
 
         for (model_key, index), eligibility in self.traces.items():
-            table = self.weights[model_key]
-            table[index] = table.get(index, 0.0) + self.config.alpha * delta * eligibility
+            table = self._fast_table(model_key)
+            table[index] += self.config.alpha * delta * eligibility
 
         if done and reward >= self.config.consolidation_threshold:
             self._consolidate_context()
@@ -331,7 +347,7 @@ class SparseFlyAgent:
         return delta
 
     def fast_parameter_count(self) -> int:
-        return sum(len(w) for w in self.weights.values())
+        return sum(int(np.count_nonzero(w)) for w in self.weights.values())
 
     def slow_parameter_count(self) -> int:
         contextual = sum(

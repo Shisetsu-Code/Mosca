@@ -59,3 +59,17 @@ def test_fly_agent_still_updates_fast_weights():
     next_obs, reward, done, _ = env.step(action)
     agent.learn(features, action, reward, next_obs, env.valid_actions(), done)
     assert agent.fast_parameter_count() > 0
+
+
+def test_fast_weights_use_dense_numpy_vectors():
+    import numpy as np
+
+    agent = SparseFlyAgent(seed=4)
+    env = ASTMaze(TASKS["sum_list"])
+    obs = env.observe()
+    action, features = agent.choose(obs, env.valid_actions())
+    next_obs, reward, done, _ = env.step(action)
+    agent.learn(features, action, reward, next_obs, env.valid_actions(), done)
+    assert agent.weights
+    assert all(isinstance(table, np.ndarray) for table in agent.weights.values())
+    assert all(table.shape == (agent.config.expansion_width,) for table in agent.weights.values())

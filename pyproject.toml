@@ -7,7 +7,7 @@ name = "mosca"
 version = "0.8.0"
 description = "Program synthesis as navigation through a constrained Python state space"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = ["numpy>=2.0,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

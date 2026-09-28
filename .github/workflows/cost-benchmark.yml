@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - exp/resource-profile
+      - exp/numpy-fastweights
   workflow_dispatch:
 
 jobs:
