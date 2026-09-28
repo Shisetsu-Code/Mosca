@@ -88,6 +88,23 @@ def task_memory_concepts(task: Task) -> tuple[str, ...]:
     for relation in stable:
         concepts.update(mapping.get(relation, ()))
 
+    # Structural and identity roles are factor-only memories. They are inferred
+    # from I/O shape, not from task names, and stay gated off during source
+    # training.
+    if all(
+        len(case.args) == 1 and isinstance(case.args[0], list)
+        for case in task.cases
+    ):
+        concepts.add("role:list_reduce")
+
+    empty_cases = [
+        case for case in task.cases
+        if len(case.args) == 1 and isinstance(case.args[0], list)
+        and len(case.args[0]) == 0
+    ]
+    if empty_cases and all(int(case.expected) == 0 for case in empty_cases):
+        concepts.add("role:identity_zero")
+
     # Additional concepts may be inferred for slow memory without changing
     # the fast sensory signature used by the established v0.8 policy.
     positive_max = all(
@@ -95,6 +112,9 @@ def task_memory_concepts(task: Task) -> tuple[str, ...]:
         for case in task.cases
     )
     if positive_max:
-        concepts.update(("agg:max", "filter:positive"))
+        # max([0, *xs]) is max-reduction with zero identity. An explicit
+        # positive filter is redundant and can interfere with x > acc.
+        concepts.update(("agg:max", "role:identity_zero"))
+        concepts.discard("filter:positive")
 
     return tuple(sorted(concepts))
