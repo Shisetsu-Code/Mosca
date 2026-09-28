@@ -6,7 +6,7 @@ import time
 import tracemalloc
 from typing import Callable, TypeVar
 
-from .benchmark import _learn_motor_episode, _motor_config
+from .benchmark import _learn_motor_episode, _motor_config, _target_config
 from .fly import SparseFlyAgent
 from .mcts import mcts_solve
 from .motor_env import MotorMaze, OracleCounter
@@ -60,7 +60,7 @@ def _transfer_pipeline(
 ) -> dict:
     sources = tuple(TASKS.values())
     target = TRANSFER_TASKS["sum_positive"]
-    agent = SparseFlyAgent(_motor_config(), seed=seed)
+    agent = SparseFlyAgent(_motor_config(0.0, 0.0, 0.0), seed=seed)
 
     pretrain_counter = OracleCounter()
     wall0 = time.perf_counter()
@@ -73,6 +73,8 @@ def _transfer_pipeline(
         )
     pretrain_wall = time.perf_counter() - wall0
     pretrain_cpu = time.process_time() - cpu0
+
+    agent.config = _target_config(agent.config)
 
     adapt_counter = OracleCounter()
     wall0 = time.perf_counter()
@@ -99,7 +101,7 @@ def _transfer_pipeline(
 
 def _scratch_pipeline(seed: int, episodes: int) -> dict:
     target = TRANSFER_TASKS["sum_positive"]
-    agent = SparseFlyAgent(_motor_config(), seed=seed)
+    agent = SparseFlyAgent(_target_config(_motor_config(0.0, 0.0, 0.0)), seed=seed)
     counter = OracleCounter()
     result = _fly_until_generalized(agent, target, episodes, counter)
     result["parameters"] = agent.parameter_count()
