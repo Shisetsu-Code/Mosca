@@ -109,13 +109,19 @@ def memory_action_components(action: str) -> tuple[str, ...]:
     keys = [f"exact:{action}"]
     if action.startswith("SET:acc="):
         rhs = action.split("=", 1)[1]
-        keys += ("control:write", "dst:acc", "effect:set", f"effect_rhs:{rhs}")
+        keys += (
+            "control:init", "control:write", "dst:acc",
+            "effect:set", f"effect_rhs:{rhs}",
+        )
     elif action.startswith("AUG:acc"):
         rest = action[len("AUG:acc"):]
         symbol = rest[0]
         rhs = rest[2:]
         effect = {"+": "add", "-": "sub", "*": "mul"}[symbol]
-        keys += ("control:write", "dst:acc", f"effect:{effect}", f"effect_rhs:{rhs}")
+        keys += (
+            "control:unconditional", "control:write", "dst:acc",
+            f"effect:{effect}", f"effect_rhs:{rhs}",
+        )
     elif action == "FOR:x:xs":
         keys += ("control:loop", "iter:x", "source:xs")
     elif action.startswith("WHEN:"):
@@ -158,13 +164,18 @@ _CONCEPT_FACTOR_COMPONENTS: dict[str, frozenset[str]] = {
     }),
     "filter:positive": frozenset({
         "control:conditional", "lhs:x", "cmp:>", "cond_rhs:0",
-        "effect:set", "effect_rhs:0",
     }),
     "filter:negative": frozenset({
         "control:conditional", "lhs:x", "cmp:<", "cond_rhs:0",
-        "effect:set", "effect_rhs:0",
     }),
-    "filter:all": frozenset(),
+    "filter:all": frozenset({"control:unconditional"}),
+    "role:identity_zero": frozenset({
+        "control:init", "dst:acc", "effect:set", "effect_rhs:0",
+    }),
+    "role:list_reduce": frozenset({
+        "control:loop", "iter:x", "source:xs",
+        "control:end", "control:return", "effect_rhs:acc",
+    }),
 }
 
 
@@ -298,7 +309,10 @@ class SparseFlyAgent:
 
         for concept in self._active_concepts:
             factor_mix = self._factor_mix_for_concept(concept)
-            broad_table = self.concept_weights.get(concept)
+            factor_only = concept.startswith("role:")
+            broad_table = (
+                None if factor_only else self.concept_weights.get(concept)
+            )
             factor_table = self.factor_concept_weights.get(concept)
             broad_q = (
                 self._table_q(
@@ -319,8 +333,8 @@ class SparseFlyAgent:
                 )
             elif broad_q is not None:
                 slow_values.append(broad_q)
-            elif factor_q is not None:
-                slow_values.append(factor_q)
+            elif factor_q is not None and factor_mix > 0.0:
+                slow_values.append(factor_mix * factor_q)
 
         if slow_values:
             total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
@@ -402,14 +416,21 @@ class SparseFlyAgent:
     def _consolidate_concepts(self) -> None:
         rate = self.config.consolidation_rate
         for concept in self._active_concepts:
-            broad_table = self.concept_weights.setdefault(concept, {})
+            factor_only = concept.startswith("role:")
+            broad_table = (
+                None if factor_only
+                else self.concept_weights.setdefault(concept, {})
+            )
             factor_table = self.factor_concept_weights.setdefault(concept, {})
             for model_key, eligibility in self.memory_traces.items():
                 active_indices = np.flatnonzero(eligibility)
                 if active_indices.size == 0:
                     continue
 
-                broad_weights = broad_table.setdefault(model_key, {})
+                broad_weights = (
+                    broad_table.setdefault(model_key, {})
+                    if broad_table is not None else None
+                )
                 factor_weights = (
                     factor_table.setdefault(model_key, {})
                     if concept_accepts_factor(concept, model_key)
@@ -422,8 +443,9 @@ class SparseFlyAgent:
                         continue
                     gain = min(1.0, rate * trace_value)
 
-                    old = broad_weights.get(index, 0.0)
-                    broad_weights[index] = old + gain * (1.0 - old)
+                    if broad_weights is not None:
+                        old = broad_weights.get(index, 0.0)
+                        broad_weights[index] = old + gain * (1.0 - old)
 
                     if factor_weights is not None:
                         factor_old = factor_weights.get(index, 0.0)
