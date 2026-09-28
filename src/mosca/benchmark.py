@@ -21,12 +21,16 @@ def _target_config(
     role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
     agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
     filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
+    adaptive_factor_gates: bool = False,
+    gate_alpha: float = 0.02,
 ) -> FlyConfig:
     return replace(
         config,
         role_factor_mix=role_factor_mix,
         agg_factor_mix=agg_factor_mix,
         filter_factor_mix=filter_factor_mix,
+        adaptive_factor_gates=adaptive_factor_gates,
+        gate_alpha=gate_alpha,
     )
 
 
@@ -337,6 +341,7 @@ def _adapt_summary(
         "generalized": generalized,
         "first_generalized": first_generalized,
         "parameters": agent.parameter_count(),
+        "factor_gates": agent.factor_gate_snapshot(),
         "oracle": counter.snapshot(),
         "oracle_at_first_generalized": first_generalized_oracle,
     }
@@ -528,6 +533,8 @@ def transfer_suite(
     role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
     agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
     filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
+    adaptive_factor_gates: bool = False,
+    gate_alpha: float = 0.02,
 ) -> dict:
     """Pretrain once per seed, then test several held-out compositions."""
 
@@ -557,6 +564,8 @@ def transfer_suite(
                 role_factor_mix=role_factor_mix,
                 agg_factor_mix=agg_factor_mix,
                 filter_factor_mix=filter_factor_mix,
+                adaptive_factor_gates=adaptive_factor_gates,
+                gate_alpha=gate_alpha,
             )
             transfer_agent.config = target_config
             scratch_agent = SparseFlyAgent(target_config, seed=seed)
@@ -662,6 +671,8 @@ def transfer_suite(
         "role_factor_mix": role_factor_mix,
         "agg_factor_mix": agg_factor_mix,
         "filter_factor_mix": filter_factor_mix,
+        "adaptive_factor_gates": adaptive_factor_gates,
+        "gate_alpha": gate_alpha,
         "seeds": list(seeds),
         "targets": list(TRANSFER_TASKS),
         "summary": summary,
