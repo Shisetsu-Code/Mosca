@@ -1,0 +1,62 @@
+name: factor-channels-v4-sweep
+
+on:
+  push:
+    branches:
+      - exp/factor-channels-v4
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [baseline, roles, roles_agg, roles_filter, roles_both]
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - run: python -m pip install -e .[dev]
+      - name: baseline
+        if: matrix.mode == 'baseline'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.0
+          --agg-factor-mix 0.0
+          --filter-factor-mix 0.0
+      - name: roles
+        if: matrix.mode == 'roles'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.30
+          --agg-factor-mix 0.0
+          --filter-factor-mix 0.0
+      - name: roles + aggregation
+        if: matrix.mode == 'roles_agg'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.30
+          --agg-factor-mix 0.15
+          --filter-factor-mix 0.0
+      - name: roles + filter
+        if: matrix.mode == 'roles_filter'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.30
+          --agg-factor-mix 0.0
+          --filter-factor-mix 0.15
+      - name: roles + aggregation + filter
+        if: matrix.mode == 'roles_both'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.30
+          --agg-factor-mix 0.15
+          --filter-factor-mix 0.15
