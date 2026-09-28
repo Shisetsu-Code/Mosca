@@ -112,9 +112,8 @@ def task_memory_concepts(task: Task) -> tuple[str, ...]:
         for case in task.cases
     )
     if positive_max:
-        # max([0, *xs]) is max-reduction with zero identity. An explicit
-        # positive filter is redundant and can interfere with x > acc.
-        concepts.update(("agg:max", "role:identity_zero"))
-        concepts.discard("filter:positive")
+        # Preserve the established v0.9 concept path and add zero identity as
+        # an orthogonal factor-only role. This keeps role ablations comparable.
+        concepts.update(("agg:max", "filter:positive", "role:identity_zero"))
 
     return tuple(sorted(concepts))
