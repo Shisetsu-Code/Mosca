@@ -612,6 +612,18 @@ def transfer_suite(
                 item["oracle_at_first_generalized"] for item in successful
                 if item["oracle_at_first_generalized"] is not None
             ]
+            gate_rows = [
+                item[key].get("factor_gates", {})
+                for item in target_runs
+                if item[key].get("factor_gates")
+            ]
+            mean_gates = {
+                family: (
+                    sum(row[family] for row in gate_rows) / len(gate_rows)
+                    if gate_rows else None
+                )
+                for family in ("role", "agg", "filter")
+            }
             return {
                 "seed_successes": len(successful),
                 "mean_first_generalized": (
@@ -626,6 +638,7 @@ def transfer_suite(
                     / len(oracle_first)
                     if oracle_first else None
                 ),
+                "mean_factor_gates": mean_gates,
             }
 
         transfer = aggregate("transfer")
