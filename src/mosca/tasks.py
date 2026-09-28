@@ -89,6 +89,52 @@ TASKS: dict[str, Task] = {
     ),
 }
 
+EXTRA_SOURCE_TASKS: dict[str, Task] = {
+    "count_negative": Task(
+        name="count_negative",
+        description="Count values in xs strictly less than zero.",
+        cases=(
+            Case(([-2, -1, 0, 1, 2],), 2),
+            Case(([-1, -2, -3],), 3),
+            Case(([0, 1, 2],), 0),
+            Case(([],), 0),
+            Case(([5, -1, 6, -2],), 2),
+            Case(([0, 0, -7, 0],), 1),
+            Case(([-5, 8, -3, 2, -1],), 3),
+        ),
+        hidden_cases=(
+            Case(([-10, 10, -20],), 2),
+            Case(([2, -2, 3, -3, 4],), 2),
+            Case(([1, 2, 3],), 0),
+            Case(([-100],), 1),
+            Case(([0, 0, 0],), 0),
+            Case(([-5, -5, 100, -1],), 3),
+        ),
+    ),
+    "min_list": Task(
+        name="min_list",
+        description="Return the smallest integer in a non-empty xs.",
+        cases=(
+            Case(([1, 2, 3],), 1),
+            Case(([5, -1, 4],), -1),
+            Case(([-8, -2, -10],), -10),
+            Case(([9],), 9),
+            Case(([0, 5, -2],), -2),
+        ),
+        hidden_cases=(
+            Case(([10, 9, 8, 7],), 7),
+            Case(([-100, -50, -75],), -100),
+            Case(([0, 0, 0],), 0),
+            Case(([999, -1, 500],), -1),
+            Case(([1, 100, 2, 99],), 1),
+            Case(([-1],), -1),
+            Case(([5, 5, 5],), 5),
+        ),
+    ),
+}
+
+SOURCE_TASKS: dict[str, Task] = {**TASKS, **EXTRA_SOURCE_TASKS}
+
 TRANSFER_TASKS: dict[str, Task] = {
     "count_all": Task(
         name="count_all",
@@ -153,6 +199,50 @@ TRANSFER_TASKS: dict[str, Task] = {
             Case(([0, 0, 0],), 0),
             Case(([5, 5, -100, 1],), 11),
             Case(([-8, 3, 9, -1],), 12),
+        ),
+    ),
+    "sum_negative": Task(
+        name="sum_negative",
+        description="Sum only values in xs strictly less than zero.",
+        cases=(
+            Case(([-2, -1, 0, 1, 2],), -3),
+            Case(([1, 2, 3],), 0),
+            Case(([-1, 0],), -1),
+            Case(([],), 0),
+            Case(([5, -1, 6, -2],), -3),
+            Case(([-5, 8, -3, 2, -1],), -9),
+            Case(([0, 0, -7, 0],), -7),
+        ),
+        hidden_cases=(
+            Case(([-10, 10, -20],), -30),
+            Case(([2, -2, 3, -3, 4],), -5),
+            Case(([1, 2, 3],), 0),
+            Case(([-100],), -100),
+            Case(([0, 0, 0],), 0),
+            Case(([-5, -5, 100, -1],), -11),
+        ),
+    ),
+    "min_negative_or_zero": Task(
+        name="min_negative_or_zero",
+        description="Return the smallest negative value in xs, or zero if none exists.",
+        cases=(
+            Case(([-2, -1, 0, 1, 2],), -2),
+            Case(([1, 2, 3],), 0),
+            Case(([-1, 0],), -1),
+            Case(([],), 0),
+            Case(([5, -1, 6, -2],), -2),
+            Case(([-5, -2],), -5),
+            Case(([0, 0, 7, 0],), 0),
+            Case(([-5, 8, -3, 2, -1],), -5),
+        ),
+        hidden_cases=(
+            Case(([-10, 10, -20],), -20),
+            Case(([2, -2, 3, -3, 4],), -3),
+            Case(([1, 2, 3],), 0),
+            Case(([-100],), -100),
+            Case(([0, 0, 0],), 0),
+            Case(([-5, -5, 100, -1],), -5),
+            Case(([-8, 3, -9, -1],), -9),
         ),
     ),
 }
