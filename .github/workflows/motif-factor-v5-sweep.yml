@@ -1,0 +1,62 @@
+name: motif-factor-v5-sweep
+
+on:
+  push:
+    branches:
+      - exp/motif-factor-v5
+  workflow_dispatch:
+
+jobs:
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [baseline, roles, motif15, motif30, motif_asym]
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - run: python -m pip install -e .[dev]
+      - name: baseline
+        if: matrix.mode == 'baseline'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.0
+          --agg-factor-mix 0.0
+          --filter-factor-mix 0.0
+      - name: roles
+        if: matrix.mode == 'roles'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.30
+          --agg-factor-mix 0.0
+          --filter-factor-mix 0.0
+      - name: motif 0.15
+        if: matrix.mode == 'motif15'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.30
+          --agg-factor-mix 0.15
+          --filter-factor-mix 0.15
+      - name: motif 0.30
+        if: matrix.mode == 'motif30'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.30
+          --agg-factor-mix 0.30
+          --filter-factor-mix 0.30
+      - name: motif asymmetric
+        if: matrix.mode == 'motif_asym'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }}
+          --role-factor-mix 0.30
+          --agg-factor-mix 0.15
+          --filter-factor-mix 0.10
