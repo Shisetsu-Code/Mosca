@@ -171,3 +171,101 @@ def test_factor_channels_are_gated_independently():
     assert config.filter_factor_mix == 0.20
     assert concept_accepts_factor("agg:count", "effect_rhs:1")
     assert concept_accepts_factor("filter:all", "control:unconditional")
+
+
+def test_adaptive_gate_snapshot_matches_static_config_when_disabled():
+    agent = SparseFlyAgent(
+        FlyConfig(
+            role_factor_mix=0.30,
+            agg_factor_mix=0.15,
+            filter_factor_mix=0.05,
+            adaptive_factor_gates=False,
+        ),
+        seed=14,
+    )
+    assert agent.factor_gate_snapshot() == {
+        "role": 0.30,
+        "agg": 0.15,
+        "filter": 0.05,
+    }
+
+
+def test_adaptive_gates_initialize_when_enabled_after_pretraining():
+    from dataclasses import replace
+
+    agent = SparseFlyAgent(
+        FlyConfig(
+            role_factor_mix=0.0,
+            agg_factor_mix=0.0,
+            filter_factor_mix=0.0,
+            adaptive_factor_gates=False,
+        ),
+        seed=15,
+    )
+    agent.config = replace(
+        agent.config,
+        role_factor_mix=0.30,
+        agg_factor_mix=0.15,
+        filter_factor_mix=0.0,
+        adaptive_factor_gates=True,
+    )
+    agent.begin_episode()
+    assert agent.factor_gate_snapshot() == {
+        "role": 0.30,
+        "agg": 0.15,
+        "filter": 0.0,
+    }
+
+
+def test_positive_td_signal_can_raise_adaptive_gate_and_clip_bounds():
+    agent = SparseFlyAgent(
+        FlyConfig(
+            role_factor_mix=0.30,
+            agg_factor_mix=0.15,
+            filter_factor_mix=0.0,
+            adaptive_factor_gates=True,
+            gate_alpha=0.20,
+        ),
+        seed=16,
+    )
+    agent.begin_episode()
+    before = agent.factor_gate_snapshot()["role"]
+    agent._last_factor_values = {"role": 1.0, "agg": 0.0, "filter": 0.0}
+    agent.learn(
+        features=(),
+        action="END",
+        reward=5.0,
+        next_observation={},
+        next_actions=(),
+        done=True,
+    )
+    after = agent.factor_gate_snapshot()["role"]
+    assert after > before
+    assert 0.0 <= after <= 1.0
+
+
+def test_negative_td_signal_can_lower_adaptive_gate_and_clip_bounds():
+    agent = SparseFlyAgent(
+        FlyConfig(
+            role_factor_mix=0.30,
+            agg_factor_mix=0.15,
+            filter_factor_mix=0.0,
+            adaptive_factor_gates=True,
+            gate_alpha=0.20,
+        ),
+        seed=17,
+    )
+    agent.begin_episode()
+    before = agent.factor_gate_snapshot()["role"]
+    agent._last_factor_values = {"role": 1.0, "agg": 0.0, "filter": 0.0}
+    agent.learn(
+        features=(),
+        action="END",
+        reward=-5.0,
+        next_observation={},
+        next_actions=(),
+        done=True,
+    )
+    after = agent.factor_gate_snapshot()["role"]
+    assert after < before
+    assert 0.0 <= after <= 1.0
