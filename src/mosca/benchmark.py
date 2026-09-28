@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, replace
 from .ast_env import ASTMaze
 from .fly import FlyConfig, SparseFlyAgent
 from .motor_env import OracleCounter
-from .tasks import TASKS, TRANSFER_TASKS, Task
+from .tasks import SOURCE_TASKS, TASKS, TRANSFER_TASKS, Task
 
 
 DEFAULT_TRANSFER_ROLE_FACTOR_MIX = 0.30
@@ -350,7 +350,7 @@ def transfer_benchmark(
 ) -> dict:
     """Pretrain on core tasks, then adapt to a compositional unseen task."""
 
-    sources = tuple(TASKS.values())
+    sources = tuple(SOURCE_TASKS.values())
     target = TRANSFER_TASKS[target_name]
 
     pretrained = SparseFlyAgent(_motor_config(0.0, 0.0, 0.0), seed=seed)
@@ -531,7 +531,7 @@ def transfer_suite(
 ) -> dict:
     """Pretrain once per seed, then test several held-out compositions."""
 
-    sources = tuple(TASKS.values())
+    sources = tuple(SOURCE_TASKS.values())
     runs: list[dict] = []
 
     for seed in seeds:
