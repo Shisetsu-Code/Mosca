@@ -116,6 +116,12 @@ def main() -> None:
         type=float,
         default=DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
     )
+    suite.add_argument(
+        "--adaptive-factor-gates",
+        action="store_true",
+        help="allow reward-modulated factor gates to adapt on held-out tasks",
+    )
+    suite.add_argument("--gate-alpha", type=float, default=0.02)
 
     mcts = sub.add_parser("mcts-benchmark", help="UCT baseline over the same MotorMaze")
     mcts.add_argument("--simulations", type=int, default=500)
@@ -198,6 +204,8 @@ def main() -> None:
                 args.role_factor_mix,
                 args.agg_factor_mix,
                 args.filter_factor_mix,
+                args.adaptive_factor_gates,
+                args.gate_alpha,
             ),
             indent=2,
             sort_keys=True,
