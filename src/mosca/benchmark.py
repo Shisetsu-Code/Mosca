@@ -219,7 +219,7 @@ def motor_benchmark(episodes: int = 300, seed: int = 42) -> dict:
 
 
 
-def _motor_config() -> FlyConfig:
+def _motor_config(factor_mix: float = 0.0) -> FlyConfig:
     return FlyConfig(
         epsilon=0.30,
         alpha=0.065,
@@ -228,6 +228,7 @@ def _motor_config() -> FlyConfig:
         history=8,
         consolidation_rate=0.12,
         slow_mix=0.45,
+        factor_mix=factor_mix,
         consolidation_threshold=7.0,
     )
 
@@ -437,6 +438,7 @@ def transfer_multiseed(
         "target": target_name,
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
+        "factor_mix": factor_mix,
         "seeds": list(seeds),
         "pretrain_oracle": pretrain_oracle,
         "transfer": transfer,
@@ -497,6 +499,7 @@ def transfer_suite(
     pretrain_episodes: int = 600,
     adapt_episodes: int = 250,
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+    factor_mix: float = 0.0,
 ) -> dict:
     """Pretrain once per seed, then test several held-out compositions."""
 
@@ -504,7 +507,7 @@ def transfer_suite(
     runs: list[dict] = []
 
     for seed in seeds:
-        pretrained = SparseFlyAgent(_motor_config(), seed=seed)
+        pretrained = SparseFlyAgent(_motor_config(factor_mix), seed=seed)
         pretrain_counter = OracleCounter()
         for episode in range(pretrain_episodes):
             _learn_motor_episode(
@@ -521,7 +524,7 @@ def transfer_suite(
 
         for target_name, target in TRANSFER_TASKS.items():
             transfer_agent = copy.deepcopy(pretrained)
-            scratch_agent = SparseFlyAgent(_motor_config(), seed=seed)
+            scratch_agent = SparseFlyAgent(_motor_config(factor_mix), seed=seed)
             transfer_zero = _zero_shot_summary(
                 copy.deepcopy(transfer_agent), target
             )

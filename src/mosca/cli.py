@@ -91,6 +91,7 @@ def main() -> None:
     suite.add_argument("--pretrain-episodes", type=int, default=600)
     suite.add_argument("--adapt-episodes", type=int, default=250)
     suite.add_argument("--seeds", default="0,1,2,3,4")
+    suite.add_argument("--factor-mix", type=float, default=0.0)
 
     mcts = sub.add_parser("mcts-benchmark", help="UCT baseline over the same MotorMaze")
     mcts.add_argument("--simulations", type=int, default=500)
@@ -166,7 +167,12 @@ def main() -> None:
     if args.command == "transfer-suite":
         seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
         print(json.dumps(
-            transfer_suite(args.pretrain_episodes, args.adapt_episodes, seeds),
+            transfer_suite(
+                args.pretrain_episodes,
+                args.adapt_episodes,
+                seeds,
+                args.factor_mix,
+            ),
             indent=2,
             sort_keys=True,
         ))

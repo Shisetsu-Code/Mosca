@@ -21,6 +21,7 @@ class FlyConfig:
     epsilon: float = 0.18
     consolidation_rate: float = 0.0
     slow_mix: float = 0.0
+    factor_mix: float = 0.0
     consolidation_threshold: float = 7.0
 
 
@@ -142,6 +143,33 @@ def memory_action_components(action: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
+_CONCEPT_FACTOR_COMPONENTS: dict[str, frozenset[str]] = {
+    "agg:sum": frozenset({"effect:add", "effect_rhs:x"}),
+    "agg:count": frozenset({"effect:add", "effect_rhs:1"}),
+    "agg:max": frozenset({
+        "control:conditional", "lhs:x", "cmp:>", "cond_rhs:acc",
+        "effect:set", "effect_rhs:x",
+    }),
+    "agg:min": frozenset({
+        "control:conditional", "lhs:x", "cmp:<", "cond_rhs:acc",
+        "effect:set", "effect_rhs:x",
+    }),
+    "filter:positive": frozenset({
+        "control:conditional", "lhs:x", "cmp:>", "cond_rhs:0",
+        "effect:set", "effect_rhs:0",
+    }),
+    "filter:negative": frozenset({
+        "control:conditional", "lhs:x", "cmp:<", "cond_rhs:0",
+        "effect:set", "effect_rhs:0",
+    }),
+    "filter:all": frozenset(),
+}
+
+
+def concept_accepts_factor(concept: str, component: str) -> bool:
+    return component in _CONCEPT_FACTOR_COMPONENTS.get(concept, frozenset())
+
+
 class SparseFlyAgent:
     """Fast TD policy plus exact-context and compositional slow memories."""
 
@@ -152,6 +180,7 @@ class SparseFlyAgent:
         self.weights: dict[str, np.ndarray] = {}
         self.slow_weights: dict[str, dict[str, dict[int, float]]] = {}
         self.concept_weights: dict[str, dict[str, dict[int, float]]] = {}
+        self.factor_concept_weights: dict[str, dict[str, dict[int, float]]] = {}
         self._active_context = "global"
         self._active_concepts: tuple[str, ...] = ()
         self._last_memory_features: tuple[int, ...] = ()
@@ -257,14 +286,31 @@ class SparseFlyAgent:
                 self._table_q(context_table, action, features, action_components)
             )
 
+        factor_mix = min(1.0, max(0.0, self.config.factor_mix))
         for concept in self._active_concepts:
-            table = self.concept_weights.get(concept)
-            if table:
-                slow_values.append(
-                    self._table_q(
-                        table, action, memory_features, memory_action_components
-                    )
+            broad_table = self.concept_weights.get(concept)
+            factor_table = self.factor_concept_weights.get(concept)
+            broad_q = (
+                self._table_q(
+                    broad_table, action, memory_features, memory_action_components
                 )
+                if broad_table else None
+            )
+            factor_q = (
+                self._table_q(
+                    factor_table, action, memory_features, memory_action_components
+                )
+                if factor_table else None
+            )
+
+            if broad_q is not None and factor_q is not None:
+                slow_values.append(
+                    (1.0 - factor_mix) * broad_q + factor_mix * factor_q
+                )
+            elif broad_q is not None:
+                slow_values.append(broad_q)
+            elif factor_q is not None:
+                slow_values.append(factor_q)
 
         if slow_values:
             total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
@@ -346,17 +392,34 @@ class SparseFlyAgent:
     def _consolidate_concepts(self) -> None:
         rate = self.config.consolidation_rate
         for concept in self._active_concepts:
-            table = self.concept_weights.setdefault(concept, {})
+            broad_table = self.concept_weights.setdefault(concept, {})
+            factor_table = self.factor_concept_weights.setdefault(concept, {})
             for model_key, eligibility in self.memory_traces.items():
-                weights = table.setdefault(model_key, {})
-                for raw_index in np.flatnonzero(eligibility):
+                active_indices = np.flatnonzero(eligibility)
+                if active_indices.size == 0:
+                    continue
+
+                broad_weights = broad_table.setdefault(model_key, {})
+                factor_weights = (
+                    factor_table.setdefault(model_key, {})
+                    if concept_accepts_factor(concept, model_key)
+                    else None
+                )
+                for raw_index in active_indices:
                     index = int(raw_index)
                     trace_value = float(eligibility[index])
                     if trace_value <= 0:
                         continue
-                    old = weights.get(index, 0.0)
                     gain = min(1.0, rate * trace_value)
-                    weights[index] = old + gain * (1.0 - old)
+
+                    old = broad_weights.get(index, 0.0)
+                    broad_weights[index] = old + gain * (1.0 - old)
+
+                    if factor_weights is not None:
+                        factor_old = factor_weights.get(index, 0.0)
+                        factor_weights[index] = (
+                            factor_old + gain * (1.0 - factor_old)
+                        )
 
     def learn(
         self,
@@ -435,7 +498,12 @@ class SparseFlyAgent:
             for concept in self.concept_weights.values()
             for weights in concept.values()
         )
-        return contextual + conceptual
+        factor_conceptual = sum(
+            len(weights)
+            for concept in self.factor_concept_weights.values()
+            for weights in concept.values()
+        )
+        return contextual + conceptual + factor_conceptual
 
     def parameter_count(self) -> int:
         return self.fast_parameter_count() + self.slow_parameter_count()

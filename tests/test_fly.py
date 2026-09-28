@@ -1,5 +1,12 @@
 from mosca.ast_env import ASTMaze
-from mosca.fly import FlyConfig, SparseEncoder, SparseFlyAgent, action_components, memory_action_components
+from mosca.fly import (
+    FlyConfig,
+    SparseEncoder,
+    SparseFlyAgent,
+    action_components,
+    concept_accepts_factor,
+    memory_action_components,
+)
 from mosca.motor_env import MotorMaze
 from mosca.tasks import TASKS, TRANSFER_TASKS
 
@@ -115,3 +122,76 @@ def test_sparse_encoder_reuses_token_indices():
     second = enc._indices("sense:test")
     assert first is second
     assert len(enc._index_cache) == 1
+
+
+def test_factor_routing_excludes_exact_source_actions():
+    assert concept_accepts_factor("agg:sum", "effect:add")
+    assert concept_accepts_factor("agg:sum", "effect_rhs:x")
+    assert not concept_accepts_factor("agg:sum", "exact:AUG:acc+=x")
+    assert concept_accepts_factor("filter:positive", "cmp:>")
+    assert concept_accepts_factor("filter:positive", "cond_rhs:0")
+    assert not concept_accepts_factor("filter:positive", "effect_rhs:1")
+
+
+def test_factor_mix_zero_matches_broad_memory():
+    agent = SparseFlyAgent(
+        FlyConfig(slow_mix=0.45, factor_mix=0.0),
+        seed=1,
+    )
+    env = MotorMaze(TASKS["sum_list"])
+    obs = env.observe()
+    features = agent.features(obs)
+    memory = agent.memory_features(obs)
+    action = env.valid_actions()[0]
+    concept = "agg:sum"
+    agent._active_context = "none"
+    agent._active_concepts = (concept,)
+    key = "effect:add"
+    agent.concept_weights[concept] = {key: {memory[0]: 0.7}}
+    agent.factor_concept_weights[concept] = {key: {memory[0]: 0.1}}
+
+    broad_only = agent._table_q(
+        agent.concept_weights[concept],
+        action,
+        memory,
+        memory_action_components,
+    )
+    expected = agent.q_fast(action, features) + 0.45 * broad_only
+    assert abs(agent.q(action, features, memory) - expected) < 1e-12
+
+
+def test_factor_mix_interpolates_broad_and_factor_banks():
+    agent = SparseFlyAgent(
+        FlyConfig(slow_mix=1.0, factor_mix=0.5),
+        seed=2,
+    )
+    env = MotorMaze(TASKS["sum_list"])
+    obs = env.observe()
+    features = agent.features(obs)
+    memory = agent.memory_features(obs)
+    action = "AUG:acc+=x"
+    concept = "agg:sum"
+    agent._active_context = "none"
+    agent._active_concepts = (concept,)
+    agent.concept_weights[concept] = {
+        "effect:add": {memory[0]: 1.0},
+        "effect_rhs:x": {memory[0]: 1.0},
+    }
+    agent.factor_concept_weights[concept] = {
+        "effect:add": {memory[0]: 0.0},
+        "effect_rhs:x": {memory[0]: 0.0},
+    }
+    broad = agent._table_q(
+        agent.concept_weights[concept],
+        action,
+        memory,
+        memory_action_components,
+    )
+    factor = agent._table_q(
+        agent.factor_concept_weights[concept],
+        action,
+        memory,
+        memory_action_components,
+    )
+    expected = agent.q_fast(action, features) + 0.5 * (broad + factor)
+    assert abs(agent.q(action, features, memory) - expected) < 1e-12
