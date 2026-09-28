@@ -148,8 +148,8 @@ class SparseFlyAgent:
         self._active_context = "global"
         self._active_concepts: tuple[str, ...] = ()
         self._last_memory_features: tuple[int, ...] = ()
-        self.traces: dict[tuple[str, int], float] = {}
-        self.memory_traces: dict[tuple[str, int], float] = {}
+        self.traces: dict[str, np.ndarray] = {}
+        self.memory_traces: dict[str, np.ndarray] = {}
         self.history: deque[str] = deque(maxlen=self.config.history)
 
     def begin_episode(self) -> None:
@@ -264,27 +264,33 @@ class SparseFlyAgent:
     def _consolidate_context(self) -> None:
         rate = self.config.consolidation_rate
         table = self.slow_weights.setdefault(self._active_context, {})
-        for (model_key, index), eligibility in self.traces.items():
-            if eligibility == 0:
-                continue
+        for model_key, eligibility in self.traces.items():
             fast_table = self.weights.get(model_key)
-            fast = float(fast_table[index]) if fast_table is not None else 0.0
+            if fast_table is None:
+                continue
             slow_table = table.setdefault(model_key, {})
-            slow = slow_table.get(index, 0.0)
-            gain = min(1.0, rate * abs(eligibility))
-            slow_table[index] = slow + gain * (fast - slow)
+            for raw_index in np.flatnonzero(eligibility):
+                index = int(raw_index)
+                trace_value = float(eligibility[index])
+                fast = float(fast_table[index])
+                slow = slow_table.get(index, 0.0)
+                gain = min(1.0, rate * abs(trace_value))
+                slow_table[index] = slow + gain * (fast - slow)
 
     def _consolidate_concepts(self) -> None:
         rate = self.config.consolidation_rate
         for concept in self._active_concepts:
             table = self.concept_weights.setdefault(concept, {})
-            for (model_key, index), eligibility in self.memory_traces.items():
-                if eligibility <= 0:
-                    continue
+            for model_key, eligibility in self.memory_traces.items():
                 weights = table.setdefault(model_key, {})
-                old = weights.get(index, 0.0)
-                gain = min(1.0, rate * eligibility)
-                weights[index] = old + gain * (1.0 - old)
+                for raw_index in np.flatnonzero(eligibility):
+                    index = int(raw_index)
+                    trace_value = float(eligibility[index])
+                    if trace_value <= 0:
+                        continue
+                    old = weights.get(index, 0.0)
+                    gain = min(1.0, rate * trace_value)
+                    weights[index] = old + gain * (1.0 - old)
 
     def learn(
         self,
@@ -310,13 +316,10 @@ class SparseFlyAgent:
         delta = target - q_now
 
         decay = self.config.gamma * self.config.trace_decay
-        for trace_table in (self.traces, self.memory_traces):
-            for key in list(trace_table):
-                value = trace_table[key] * decay
-                if abs(value) < 1e-5:
-                    del trace_table[key]
-                else:
-                    trace_table[key] = value
+        for eligibility in self.traces.values():
+            eligibility *= decay
+        for eligibility in self.memory_traces.values():
+            eligibility *= decay
 
         fast_keys = action_components(action)
         memory_keys = memory_action_components(action)
@@ -324,20 +327,27 @@ class SparseFlyAgent:
         memory_scale = 1.0 / math.sqrt(
             max(1, len(self._last_memory_features) * len(memory_keys))
         )
+        fast_indices = np.asarray(features, dtype=np.intp)
+        memory_indices = np.asarray(self._last_memory_features, dtype=np.intp)
 
         for model_key in fast_keys:
-            for i in features:
-                key = (model_key, i)
-                self.traces[key] = self.traces.get(key, 0.0) + fast_scale
+            eligibility = self.traces.get(model_key)
+            if eligibility is None:
+                eligibility = np.zeros(self.config.expansion_width, dtype=np.float64)
+                self.traces[model_key] = eligibility
+            eligibility[fast_indices] += fast_scale
 
         for model_key in memory_keys:
-            for i in self._last_memory_features:
-                key = (model_key, i)
-                self.memory_traces[key] = self.memory_traces.get(key, 0.0) + memory_scale
+            eligibility = self.memory_traces.get(model_key)
+            if eligibility is None:
+                eligibility = np.zeros(self.config.expansion_width, dtype=np.float64)
+                self.memory_traces[model_key] = eligibility
+            eligibility[memory_indices] += memory_scale
 
-        for (model_key, index), eligibility in self.traces.items():
+        update_scale = self.config.alpha * delta
+        for model_key, eligibility in self.traces.items():
             table = self._fast_table(model_key)
-            table[index] += self.config.alpha * delta * eligibility
+            table += update_scale * eligibility
 
         if done and reward >= self.config.consolidation_threshold:
             self._consolidate_context()

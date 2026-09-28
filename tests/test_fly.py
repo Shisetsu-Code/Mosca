@@ -73,3 +73,18 @@ def test_fast_weights_use_dense_numpy_vectors():
     assert agent.weights
     assert all(isinstance(table, np.ndarray) for table in agent.weights.values())
     assert all(table.shape == (agent.config.expansion_width,) for table in agent.weights.values())
+
+
+def test_eligibility_traces_use_dense_numpy_vectors():
+    import numpy as np
+
+    agent = SparseFlyAgent(seed=5)
+    env = ASTMaze(TASKS["sum_list"])
+    obs = env.observe()
+    action, features = agent.choose(obs, env.valid_actions())
+    next_obs, reward, done, _ = env.step(action)
+    agent.learn(features, action, reward, next_obs, env.valid_actions(), done)
+    assert agent.traces
+    assert agent.memory_traces
+    assert all(isinstance(v, np.ndarray) for v in agent.traces.values())
+    assert all(isinstance(v, np.ndarray) for v in agent.memory_traces.values())

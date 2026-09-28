@@ -5,6 +5,7 @@ on:
     branches:
       - exp/resource-profile
       - exp/numpy-fastweights
+      - exp/numpy-traces
   workflow_dispatch:
 
 jobs:
