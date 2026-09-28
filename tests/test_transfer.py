@@ -36,9 +36,17 @@ def test_memory_concepts_compose_source_behaviors():
     assert "filter:positive" in task_memory_concepts(TASKS["count_positive"])
 
     expected = {
-        "sum_positive": {"agg:sum", "filter:positive"},
-        "count_all": {"agg:count", "filter:all"},
-        "max_positive_or_zero": {"agg:max", "filter:positive"},
+        "sum_positive": {
+            "agg:sum", "filter:positive",
+            "role:identity_zero", "role:list_reduce",
+        },
+        "count_all": {
+            "agg:count", "filter:all",
+            "role:identity_zero", "role:list_reduce",
+        },
+        "max_positive_or_zero": {
+            "agg:max", "role:identity_zero", "role:list_reduce",
+        },
     }
     for name, concepts in expected.items():
         assert concepts <= set(task_memory_concepts(TRANSFER_TASKS[name]))
@@ -66,3 +74,10 @@ def test_transfer_suite_smoke():
     assert set(result["targets"]) == set(TRANSFER_TASKS)
     assert set(result["summary"]) == set(TRANSFER_TASKS)
     assert len(result["runs"]) == 1
+
+
+def test_positive_max_does_not_require_explicit_positive_filter():
+    concepts = set(task_memory_concepts(TRANSFER_TASKS["max_positive_or_zero"]))
+    assert "agg:max" in concepts
+    assert "role:identity_zero" in concepts
+    assert "filter:positive" not in concepts
