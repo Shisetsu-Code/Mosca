@@ -11,19 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - mode: baseline
-            role_mix: 0.0
-            filter_all_mix: 0.0
-          - mode: roles
-            role_mix: 0.30
-            filter_all_mix: 0.0
-          - mode: roles_filter25
-            role_mix: 0.30
-            filter_all_mix: 0.25
-          - mode: roles_filter50
-            role_mix: 0.30
-            filter_all_mix: 0.50
+        mode: [baseline, roles, roles_filter25, roles_filter50]
         seed: [0, 1, 2, 3, 4]
     runs-on: ubuntu-latest
     steps:
@@ -32,10 +20,27 @@ jobs:
         with:
           python-version: "3.12.14"
       - run: python -m pip install -e .[dev]
-      - run: >-
-          mosca transfer-suite
-          --pretrain-episodes 600
-          --adapt-episodes 250
-          --seeds ${{ matrix.seed }}
-          --role-factor-mix ${{ matrix.role_mix }}
-          --filter-all-factor-mix ${{ matrix.filter_all_mix }}
+      - name: baseline
+        if: matrix.mode == 'baseline'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }} --role-factor-mix 0.0
+          --filter-all-factor-mix 0.0
+      - name: roles
+        if: matrix.mode == 'roles'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }} --role-factor-mix 0.30
+          --filter-all-factor-mix 0.0
+      - name: roles + filter-all 0.25
+        if: matrix.mode == 'roles_filter25'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }} --role-factor-mix 0.30
+          --filter-all-factor-mix 0.25
+      - name: roles + filter-all 0.50
+        if: matrix.mode == 'roles_filter50'
+        run: >-
+          mosca transfer-suite --pretrain-episodes 600 --adapt-episodes 250
+          --seeds ${{ matrix.seed }} --role-factor-mix 0.30
+          --filter-all-factor-mix 0.50
