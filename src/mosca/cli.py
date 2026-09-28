@@ -126,7 +126,8 @@ def main() -> None:
         help="train extra source concepts on disposable branches and transplant factor memory",
     )
     modular.add_argument("--core-pretrain-episodes", type=int, default=600)
-    modular.add_argument("--module-episodes", type=int, default=200)
+    modular.add_argument("--module-max-episodes", type=int, default=600)
+    modular.add_argument("--module-target-visible", type=int, default=40)
     modular.add_argument("--adapt-episodes", type=int, default=250)
     modular.add_argument("--seeds", default="0,1,2,3,4")
     modular.add_argument(
@@ -245,7 +246,8 @@ def main() -> None:
         print(json.dumps(
             modular_transfer_suite(
                 core_pretrain_episodes=args.core_pretrain_episodes,
-                module_episodes=args.module_episodes,
+                module_max_episodes=args.module_max_episodes,
+                module_target_visible=args.module_target_visible,
                 adapt_episodes=args.adapt_episodes,
                 seeds=seeds,
                 role_factor_mix=args.role_factor_mix,

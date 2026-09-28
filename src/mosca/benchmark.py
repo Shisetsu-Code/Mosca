@@ -713,15 +713,18 @@ def _train_factor_module(
     base_agent: SparseFlyAgent,
     task: Task,
     concept: str,
-    episodes: int,
+    max_episodes: int,
+    target_visible_solutions: int,
     counter: OracleCounter,
 ) -> tuple[SparseFlyAgent, dict]:
     module_agent = copy.deepcopy(base_agent)
     visible_solutions = 0
     generalized = 0
     first_generalized = None
+    episodes_used = 0
 
-    for episode in range(1, episodes + 1):
+    for episode in range(1, max_episodes + 1):
+        episodes_used = episode
         train_score, hidden_score = _learn_motor_episode(
             module_agent,
             task,
@@ -732,11 +735,16 @@ def _train_factor_module(
         if hidden_score == 1.0:
             generalized += 1
             first_generalized = first_generalized or episode
+        if visible_solutions >= target_visible_solutions:
+            break
 
     return module_agent, {
         "task": task.name,
         "concept": concept,
-        "episodes": episodes,
+        "max_episodes": max_episodes,
+        "episodes_used": episodes_used,
+        "target_visible_solutions": target_visible_solutions,
+        "mastered": visible_solutions >= target_visible_solutions,
         "visible_solutions": visible_solutions,
         "generalized": generalized,
         "first_generalized": first_generalized,
@@ -750,7 +758,8 @@ def _train_factor_module(
 
 def modular_transfer_suite(
     core_pretrain_episodes: int = 600,
-    module_episodes: int = 200,
+    module_max_episodes: int = 600,
+    module_target_visible: int = 40,
     adapt_episodes: int = 250,
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
     role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
@@ -783,7 +792,8 @@ def modular_transfer_suite(
                 pretrained,
                 EXTRA_SOURCE_TASKS[task_name],
                 concept,
-                module_episodes,
+                module_max_episodes,
+                module_target_visible,
                 module_counter,
             )
             stats["copied"] = _transplant_factor_concept(
@@ -897,6 +907,10 @@ def modular_transfer_suite(
         rows = [run["modules"][task_name] for run in runs]
         module_summary[task_name] = {
             "seed_successes": sum(row["generalized"] > 0 for row in rows),
+            "mastered_seeds": sum(bool(row["mastered"]) for row in rows),
+            "mean_episodes_used": (
+                sum(row["episodes_used"] for row in rows) / len(rows)
+            ),
             "mean_first_generalized": (
                 sum(row["first_generalized"] for row in rows if row["first_generalized"] is not None)
                 / max(1, sum(row["first_generalized"] is not None for row in rows))
@@ -909,10 +923,15 @@ def modular_transfer_suite(
 
     return {
         "core_pretrain_episodes": core_pretrain_episodes,
-        "module_episodes_per_task": module_episodes,
-        "total_source_episode_budget": (
+        "module_max_episodes_per_task": module_max_episodes,
+        "module_target_visible_solutions": module_target_visible,
+        "mean_source_episodes_used": (
             core_pretrain_episodes
-            + module_episodes * len(NOVEL_FACTOR_MODULES)
+            + sum(
+                run["modules"][task_name]["episodes_used"]
+                for run in runs
+                for task_name in NOVEL_FACTOR_MODULES
+            ) / len(runs)
         ),
         "adapt_episodes": adapt_episodes,
         "role_factor_mix": role_factor_mix,

@@ -161,12 +161,15 @@ def test_modular_transfer_suite_smoke():
 
     result = modular_transfer_suite(
         core_pretrain_episodes=6,
-        module_episodes=3,
+        module_max_episodes=3,
+        module_target_visible=1,
         adapt_episodes=2,
         seeds=(0,),
         filter_factor_mix=0.25,
     )
-    assert result["total_source_episode_budget"] == 12
+    assert result["module_max_episodes_per_task"] == 3
+    assert result["module_target_visible_solutions"] == 1
+    assert result["mean_source_episodes_used"] <= 12
     assert set(result["module_summary"]) == {"count_negative", "min_list"}
     assert set(result["summary"]) == set(TRANSFER_TASKS)
     assert len(result["runs"]) == 1
