@@ -87,4 +87,14 @@ def task_memory_concepts(task: Task) -> tuple[str, ...]:
     concepts: set[str] = set()
     for relation in stable:
         concepts.update(mapping.get(relation, ()))
+
+    # Additional concepts may be inferred for slow memory without changing
+    # the fast sensory signature used by the established v0.8 policy.
+    positive_max = all(
+        int(case.expected) == max([0, *list(case.args[0])])
+        for case in task.cases
+    )
+    if positive_max:
+        concepts.update(("agg:max", "filter:positive"))
+
     return tuple(sorted(concepts))

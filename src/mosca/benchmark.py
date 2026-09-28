@@ -320,11 +320,12 @@ def transfer_benchmark(
     pretrain_episodes: int = 300,
     adapt_episodes: int = 200,
     seed: int = 42,
+    target_name: str = "sum_positive",
 ) -> dict:
     """Pretrain on core tasks, then adapt to a compositional unseen task."""
 
     sources = tuple(TASKS.values())
-    target = TRANSFER_TASKS["sum_positive"]
+    target = TRANSFER_TASKS[target_name]
 
     pretrained = SparseFlyAgent(_motor_config(), seed=seed)
     pretrain_counter = OracleCounter()
@@ -364,9 +365,10 @@ def transfer_multiseed(
     pretrain_episodes: int = 600,
     adapt_episodes: int = 250,
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+    target_name: str = "sum_positive",
 ) -> dict:
     runs = [
-        transfer_benchmark(pretrain_episodes, adapt_episodes, seed)
+        transfer_benchmark(pretrain_episodes, adapt_episodes, seed, target_name)
         for seed in seeds
     ]
 
@@ -432,6 +434,7 @@ def transfer_multiseed(
             paired_ties += 1
 
     return {
+        "target": target_name,
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
         "seeds": list(seeds),
@@ -486,4 +489,140 @@ def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 1) -> 
         "best_hidden_score": best_hidden,
         "example_sources": examples,
         "oracle": counter.snapshot(),
+    }
+
+
+
+def transfer_suite(
+    pretrain_episodes: int = 600,
+    adapt_episodes: int = 250,
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+) -> dict:
+    """Pretrain once per seed, then test several held-out compositions."""
+
+    sources = tuple(TASKS.values())
+    runs: list[dict] = []
+
+    for seed in seeds:
+        pretrained = SparseFlyAgent(_motor_config(), seed=seed)
+        pretrain_counter = OracleCounter()
+        for episode in range(pretrain_episodes):
+            _learn_motor_episode(
+                pretrained,
+                sources[episode % len(sources)],
+                counter=pretrain_counter,
+            )
+
+        seed_result = {
+            "seed": seed,
+            "pretrain_oracle": pretrain_counter.snapshot(),
+            "targets": {},
+        }
+
+        for target_name, target in TRANSFER_TASKS.items():
+            transfer_agent = copy.deepcopy(pretrained)
+            scratch_agent = SparseFlyAgent(_motor_config(), seed=seed)
+            transfer_zero = _zero_shot_summary(
+                copy.deepcopy(transfer_agent), target
+            )
+            scratch_zero = _zero_shot_summary(
+                copy.deepcopy(scratch_agent), target
+            )
+            transfer_counter = OracleCounter()
+            scratch_counter = OracleCounter()
+            transfer = _adapt_summary(
+                transfer_agent,
+                target,
+                adapt_episodes,
+                counter=transfer_counter,
+            )
+            scratch = _adapt_summary(
+                scratch_agent,
+                target,
+                adapt_episodes,
+                counter=scratch_counter,
+            )
+            seed_result["targets"][target_name] = {
+                "transfer_zero_shot": transfer_zero,
+                "scratch_zero_shot": scratch_zero,
+                "transfer": transfer,
+                "scratch": scratch,
+            }
+
+        runs.append(seed_result)
+
+    summary: dict[str, dict] = {}
+    for target_name in TRANSFER_TASKS:
+        target_runs = [run["targets"][target_name] for run in runs]
+
+        def aggregate(key: str) -> dict:
+            successful = [
+                item[key] for item in target_runs
+                if item[key]["first_generalized"] is not None
+            ]
+            first = [item["first_generalized"] for item in successful]
+            oracle_first = [
+                item["oracle_at_first_generalized"] for item in successful
+                if item["oracle_at_first_generalized"] is not None
+            ]
+            return {
+                "seed_successes": len(successful),
+                "mean_first_generalized": (
+                    sum(first) / len(first) if first else None
+                ),
+                "best_first_generalized": min(first) if first else None,
+                "total_generalized": sum(
+                    item[key]["generalized"] for item in target_runs
+                ),
+                "mean_visible_oracle_calls_at_first_generalized": (
+                    sum(x["visible_oracle_calls"] for x in oracle_first)
+                    / len(oracle_first)
+                    if oracle_first else None
+                ),
+            }
+
+        transfer = aggregate("transfer")
+        scratch = aggregate("scratch")
+        wins = losses = ties = 0
+        for item in target_runs:
+            a = item["transfer"]["first_generalized"]
+            b = item["scratch"]["first_generalized"]
+            if a is None and b is None:
+                ties += 1
+            elif a is None:
+                losses += 1
+            elif b is None or a < b:
+                wins += 1
+            elif a > b:
+                losses += 1
+            else:
+                ties += 1
+
+        summary[target_name] = {
+            "transfer": transfer,
+            "scratch": scratch,
+            "zero_shot": {
+                "transfer_seed_successes": sum(
+                    item["transfer_zero_shot"]["generalized"] > 0
+                    for item in target_runs
+                ),
+                "scratch_seed_successes": sum(
+                    item["scratch_zero_shot"]["generalized"] > 0
+                    for item in target_runs
+                ),
+            },
+            "paired": {
+                "transfer_wins": wins,
+                "scratch_wins": losses,
+                "ties": ties,
+            },
+        }
+
+    return {
+        "pretrain_episodes": pretrain_episodes,
+        "adapt_episodes": adapt_episodes,
+        "seeds": list(seeds),
+        "targets": list(TRANSFER_TASKS),
+        "summary": summary,
+        "runs": runs,
     }

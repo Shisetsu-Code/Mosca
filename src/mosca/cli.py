@@ -4,7 +4,7 @@ import argparse
 import json
 
 from .ast_env import ASTMaze
-from .benchmark import benchmark_json, motor_benchmark, motor_multiseed, transfer_benchmark, transfer_multiseed
+from .benchmark import benchmark_json, motor_benchmark, motor_multiseed, transfer_benchmark, transfer_multiseed, transfer_suite
 from .grammar import rule_manifest
 from .reference import MOTOR_REFERENCE_ACTIONS, REFERENCE_ACTIONS
 from .resource import resource_benchmark
@@ -12,7 +12,7 @@ from .runtime import runtime_status
 from .motor_env import MotorMaze
 from .mcts import mcts_benchmark, mcts_multiseed
 from .search import bfs_solve
-from .tasks import TASKS
+from .tasks import TASKS, TRANSFER_TASKS
 
 
 def _run_reference(name: str) -> dict:
@@ -79,11 +79,18 @@ def main() -> None:
     transfer.add_argument("--pretrain-episodes", type=int, default=300)
     transfer.add_argument("--adapt-episodes", type=int, default=200)
     transfer.add_argument("--seed", type=int, default=42)
+    transfer.add_argument("--target", choices=sorted(TRANSFER_TASKS), default="sum_positive")
 
     transfer_multi = sub.add_parser("transfer-multiseed", help="repeat compositional transfer across seeds")
     transfer_multi.add_argument("--pretrain-episodes", type=int, default=600)
     transfer_multi.add_argument("--adapt-episodes", type=int, default=250)
     transfer_multi.add_argument("--seeds", default="0,1,2,3,4")
+    transfer_multi.add_argument("--target", choices=sorted(TRANSFER_TASKS), default="sum_positive")
+
+    suite = sub.add_parser("transfer-suite", help="pretrain once and test all held-out compositions")
+    suite.add_argument("--pretrain-episodes", type=int, default=600)
+    suite.add_argument("--adapt-episodes", type=int, default=250)
+    suite.add_argument("--seeds", default="0,1,2,3,4")
 
     mcts = sub.add_parser("mcts-benchmark", help="UCT baseline over the same MotorMaze")
     mcts.add_argument("--simulations", type=int, default=500)
@@ -143,7 +150,7 @@ def main() -> None:
         return
     if args.command == "transfer-benchmark":
         print(json.dumps(
-            transfer_benchmark(args.pretrain_episodes, args.adapt_episodes, args.seed),
+            transfer_benchmark(args.pretrain_episodes, args.adapt_episodes, args.seed, args.target),
             indent=2,
             sort_keys=True,
         ))
@@ -151,7 +158,15 @@ def main() -> None:
     if args.command == "transfer-multiseed":
         seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
         print(json.dumps(
-            transfer_multiseed(args.pretrain_episodes, args.adapt_episodes, seeds),
+            transfer_multiseed(args.pretrain_episodes, args.adapt_episodes, seeds, args.target),
+            indent=2,
+            sort_keys=True,
+        ))
+        return
+    if args.command == "transfer-suite":
+        seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
+        print(json.dumps(
+            transfer_suite(args.pretrain_episodes, args.adapt_episodes, seeds),
             indent=2,
             sort_keys=True,
         ))
