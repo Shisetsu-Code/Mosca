@@ -11,6 +11,25 @@ from .motor_env import OracleCounter
 from .tasks import TASKS, TRANSFER_TASKS, Task
 
 
+DEFAULT_TRANSFER_ROLE_FACTOR_MIX = 0.30
+DEFAULT_TRANSFER_AGG_FACTOR_MIX = 0.15
+DEFAULT_TRANSFER_FILTER_FACTOR_MIX = 0.0
+
+
+def _target_config(
+    config: FlyConfig,
+    role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
+    agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
+    filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
+) -> FlyConfig:
+    return replace(
+        config,
+        role_factor_mix=role_factor_mix,
+        agg_factor_mix=agg_factor_mix,
+        filter_factor_mix=filter_factor_mix,
+    )
+
+
 @dataclass
 class RunStats:
     episodes: int
@@ -220,9 +239,9 @@ def motor_benchmark(episodes: int = 300, seed: int = 42) -> dict:
 
 
 def _motor_config(
-    role_factor_mix: float = 0.0,
-    agg_factor_mix: float = 0.0,
-    filter_factor_mix: float = 0.0,
+    role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
+    agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
+    filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
 ) -> FlyConfig:
     return FlyConfig(
         epsilon=0.30,
@@ -334,7 +353,7 @@ def transfer_benchmark(
     sources = tuple(TASKS.values())
     target = TRANSFER_TASKS[target_name]
 
-    pretrained = SparseFlyAgent(_motor_config(), seed=seed)
+    pretrained = SparseFlyAgent(_motor_config(0.0, 0.0, 0.0), seed=seed)
     pretrain_counter = OracleCounter()
     for episode in range(pretrain_episodes):
         _learn_motor_episode(
@@ -343,7 +362,9 @@ def transfer_benchmark(
             counter=pretrain_counter,
         )
 
-    scratch = SparseFlyAgent(_motor_config(), seed=seed)
+    target_config = _target_config(pretrained.config)
+    pretrained.config = target_config
+    scratch = SparseFlyAgent(target_config, seed=seed)
     transfer_zero_shot = _zero_shot_summary(copy.deepcopy(pretrained), target)
     scratch_zero_shot = _zero_shot_summary(copy.deepcopy(scratch), target)
     transfer_counter = OracleCounter()
@@ -531,7 +552,7 @@ def transfer_suite(
 
         for target_name, target in TRANSFER_TASKS.items():
             transfer_agent = copy.deepcopy(pretrained)
-            target_config = replace(
+            target_config = _target_config(
                 transfer_agent.config,
                 role_factor_mix=role_factor_mix,
                 agg_factor_mix=agg_factor_mix,
