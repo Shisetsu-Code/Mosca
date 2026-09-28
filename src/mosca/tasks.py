@@ -90,6 +90,48 @@ TASKS: dict[str, Task] = {
 }
 
 TRANSFER_TASKS: dict[str, Task] = {
+    "count_all": Task(
+        name="count_all",
+        description="Count all values in xs.",
+        cases=(
+            Case(([],), 0),
+            Case(([1],), 1),
+            Case(([-1, 0, 2],), 3),
+            Case(([4, 5, 6, 7],), 4),
+            Case(([-5, -4, -3, -2, -1],), 5),
+            Case(([0, 0],), 2),
+        ),
+        hidden_cases=(
+            Case(([10, -10, 0, 3],), 4),
+            Case(([1, 2, 3, 4, 5, 6],), 6),
+            Case(([-9],), 1),
+            Case(([0, 0, 0, 0, 0],), 5),
+            Case(([],), 0),
+        ),
+    ),
+    "max_positive_or_zero": Task(
+        name="max_positive_or_zero",
+        description="Return the largest positive value in xs, or zero if none exists.",
+        cases=(
+            Case(([-2, -1, 0, 1, 2],), 2),
+            Case(([1, 2, 3],), 3),
+            Case(([-1, 0],), 0),
+            Case(([],), 0),
+            Case(([5, -1, 6, -2],), 6),
+            Case(([-5, -2],), 0),
+            Case(([0, 0, 7, 0],), 7),
+            Case(([-5, 8, -3, 2, -1],), 8),
+        ),
+        hidden_cases=(
+            Case(([-10, 10, 20],), 20),
+            Case(([2, -2, 3, -3, 4],), 4),
+            Case(([-1, -2, -3],), 0),
+            Case(([100],), 100),
+            Case(([0, 0, 0],), 0),
+            Case(([5, 5, -100, 1],), 5),
+            Case(([-8, 3, 9, -1],), 9),
+        ),
+    ),
     "sum_positive": Task(
         name="sum_positive",
         description="Sum only values in xs strictly greater than zero.",
