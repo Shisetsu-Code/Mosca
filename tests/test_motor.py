@@ -1,11 +1,11 @@
 from mosca.motor_env import MotorMaze, OracleCounter
 from mosca.reference import MOTOR_REFERENCE_ACTIONS
-from mosca.tasks import TASKS
+from mosca.tasks import SOURCE_TASKS, TASKS
 
 
 def test_motor_reference_programs_are_correct_and_short():
     for name, actions in MOTOR_REFERENCE_ACTIONS.items():
-        env = MotorMaze(TASKS[name], max_steps=8)
+        env = MotorMaze(SOURCE_TASKS[name], max_steps=8)
         for action in actions:
             env.step(action)
         assert env.done, name

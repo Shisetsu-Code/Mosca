@@ -21,6 +21,20 @@ REFERENCE_ACTIONS: dict[str, tuple[str, ...]] = {
         "LIST:CONS", "STMT:ASSIGN", "TARGET:NAME:acc", "EXPR:NAME:x", "LIST:END", "LIST:END",
         "LIST:CONS", "STMT:RETURN", "EXPR:NAME:acc", "LIST:END",
     ),
+    "count_negative": (
+        "LIST:CONS", "STMT:ASSIGN", "TARGET:NAME:acc", "EXPR:CONST:0",
+        "LIST:CONS", "STMT:FOR", "TARGET:NAME:x", "EXPR:NAME:xs",
+        "LIST:CONS", "STMT:IF", "EXPR:COMPARE", "EXPR:NAME:x", "CMPOP:LT", "EXPR:CONST:0",
+        "LIST:CONS", "STMT:AUGASSIGN", "TARGET:NAME:acc", "BINOP:ADD", "EXPR:CONST:1",
+        "LIST:END", "LIST:END", "LIST:CONS", "STMT:RETURN", "EXPR:NAME:acc", "LIST:END",
+    ),
+    "min_list": (
+        "LIST:CONS", "STMT:ASSIGN", "TARGET:NAME:acc", "EXPR:SUBSCRIPT", "EXPR:NAME:xs", "EXPR:CONST:0",
+        "LIST:CONS", "STMT:FOR", "TARGET:NAME:x", "EXPR:NAME:xs",
+        "LIST:CONS", "STMT:IF", "EXPR:COMPARE", "EXPR:NAME:x", "CMPOP:LT", "EXPR:NAME:acc",
+        "LIST:CONS", "STMT:ASSIGN", "TARGET:NAME:acc", "EXPR:NAME:x", "LIST:END", "LIST:END",
+        "LIST:CONS", "STMT:RETURN", "EXPR:NAME:acc", "LIST:END",
+    ),
 }
 
 
@@ -33,5 +47,11 @@ MOTOR_REFERENCE_ACTIONS: dict[str, tuple[str, ...]] = {
     ),
     "max_list": (
         "SET:acc=xs[0]", "FOR:x:xs", "WHEN:x>acc:SETX", "END", "RETURN:acc",
+    ),
+    "count_negative": (
+        "SET:acc=0", "FOR:x:xs", "WHEN:x<0:INC1", "END", "RETURN:acc",
+    ),
+    "min_list": (
+        "SET:acc=xs[0]", "FOR:x:xs", "WHEN:x<acc:SETX", "END", "RETURN:acc",
     ),
 }

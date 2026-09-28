@@ -16,6 +16,16 @@ DEFAULT_TRANSFER_AGG_FACTOR_MIX = 0.15
 DEFAULT_TRANSFER_FILTER_FACTOR_MIX = 0.0
 
 
+def _source_tasks(source_curriculum: str) -> dict[str, Task]:
+    if source_curriculum == "core":
+        return TASKS
+    if source_curriculum == "expanded":
+        return SOURCE_TASKS
+    raise ValueError(
+        f"unknown source curriculum {source_curriculum!r}; expected core or expanded"
+    )
+
+
 def _target_config(
     config: FlyConfig,
     role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
@@ -347,10 +357,11 @@ def transfer_benchmark(
     adapt_episodes: int = 200,
     seed: int = 42,
     target_name: str = "sum_positive",
+    source_curriculum: str = "expanded",
 ) -> dict:
     """Pretrain on core tasks, then adapt to a compositional unseen task."""
 
-    sources = tuple(SOURCE_TASKS.values())
+    sources = tuple(_source_tasks(source_curriculum).values())
     target = TRANSFER_TASKS[target_name]
 
     pretrained = SparseFlyAgent(_motor_config(0.0, 0.0, 0.0), seed=seed)
@@ -380,6 +391,7 @@ def transfer_benchmark(
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
         "target": target.name,
+        "source_curriculum": source_curriculum,
         "pretrain_oracle": pretrain_counter.snapshot(),
         "transfer_zero_shot": transfer_zero_shot,
         "scratch_zero_shot": scratch_zero_shot,
@@ -394,9 +406,16 @@ def transfer_multiseed(
     adapt_episodes: int = 250,
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
     target_name: str = "sum_positive",
+    source_curriculum: str = "expanded",
 ) -> dict:
     runs = [
-        transfer_benchmark(pretrain_episodes, adapt_episodes, seed, target_name)
+        transfer_benchmark(
+            pretrain_episodes,
+            adapt_episodes,
+            seed,
+            target_name,
+            source_curriculum,
+        )
         for seed in seeds
     ]
 
@@ -463,6 +482,7 @@ def transfer_multiseed(
 
     return {
         "target": target_name,
+        "source_curriculum": source_curriculum,
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
         "seeds": list(seeds),
@@ -528,10 +548,11 @@ def transfer_suite(
     role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
     agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
     filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
+    source_curriculum: str = "expanded",
 ) -> dict:
     """Pretrain once per seed, then test several held-out compositions."""
 
-    sources = tuple(SOURCE_TASKS.values())
+    sources = tuple(_source_tasks(source_curriculum).values())
     runs: list[dict] = []
 
     for seed in seeds:
@@ -662,6 +683,7 @@ def transfer_suite(
         "role_factor_mix": role_factor_mix,
         "agg_factor_mix": agg_factor_mix,
         "filter_factor_mix": filter_factor_mix,
+        "source_curriculum": source_curriculum,
         "seeds": list(seeds),
         "targets": list(TRANSFER_TASKS),
         "summary": summary,

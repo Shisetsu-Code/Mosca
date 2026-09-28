@@ -116,4 +116,13 @@ def task_memory_concepts(task: Task) -> tuple[str, ...]:
             "agg:max", "filter:positive", "role:identity_zero",
         ))
 
+    negative_min = all(
+        int(case.expected) == min([0, *list(case.args[0])])
+        for case in task.cases
+    )
+    if negative_min:
+        concepts.update((
+            "agg:min", "filter:negative", "role:identity_zero",
+        ))
+
     return tuple(sorted(concepts))
