@@ -21,6 +21,7 @@ class FlyConfig:
     epsilon: float = 0.18
     consolidation_rate: float = 0.0
     slow_mix: float = 0.0
+    role_factor_mix: float = 0.0
     consolidation_threshold: float = 7.0
 
 
@@ -142,6 +143,78 @@ def memory_action_components(action: str) -> tuple[str, ...]:
     return tuple(keys)
 
 
+def factor_memory_components(action: str) -> tuple[str, ...]:
+    """Factor-only motor semantics; never used by the established broad memory."""
+    keys: list[str] = []
+    if action.startswith("SET:acc="):
+        rhs = action.split("=", 1)[1]
+        keys += ("control:init", "dst:acc", "effect:set", f"effect_rhs:{rhs}")
+    elif action.startswith("AUG:acc"):
+        rest = action[len("AUG:acc"):]
+        symbol = rest[0]
+        rhs = rest[2:]
+        effect = {"+": "add", "-": "sub", "*": "mul"}[symbol]
+        keys += (
+            "control:unconditional", "dst:acc",
+            f"effect:{effect}", f"effect_rhs:{rhs}",
+        )
+    elif action == "FOR:x:xs":
+        keys += ("control:loop", "iter:x", "source:xs")
+    elif action.startswith("WHEN:"):
+        payload = action[len("WHEN:"):]
+        cond, update = payload.rsplit(":", 1)
+        symbol = "==" if "==" in cond else ">" if ">" in cond else "<"
+        left, right = cond.split(symbol, 1)
+        effect, effect_rhs = {
+            "SETX": ("set", "x"),
+            "INC1": ("add", "1"),
+            "ADDX": ("add", "x"),
+        }[update]
+        keys += (
+            "control:conditional", f"lhs:{left}", f"cmp:{symbol}",
+            f"cond_rhs:{right}", "dst:acc",
+            f"effect:{effect}", f"effect_rhs:{effect_rhs}",
+        )
+    elif action == "END":
+        keys += ("control:end",)
+    elif action.startswith("RETURN:"):
+        rhs = action.split(":", 1)[1]
+        keys += ("control:return", f"effect_rhs:{rhs}")
+    return tuple(keys)
+
+
+_CONCEPT_FACTOR_COMPONENTS: dict[str, frozenset[str]] = {
+    "agg:sum": frozenset({"effect:add", "effect_rhs:x"}),
+    "agg:count": frozenset({"effect:add", "effect_rhs:1"}),
+    "agg:max": frozenset({
+        "control:conditional", "lhs:x", "cmp:>", "cond_rhs:acc",
+        "effect:set", "effect_rhs:x",
+    }),
+    "agg:min": frozenset({
+        "control:conditional", "lhs:x", "cmp:<", "cond_rhs:acc",
+        "effect:set", "effect_rhs:x",
+    }),
+    "filter:positive": frozenset({
+        "control:conditional", "lhs:x", "cmp:>", "cond_rhs:0",
+    }),
+    "filter:negative": frozenset({
+        "control:conditional", "lhs:x", "cmp:<", "cond_rhs:0",
+    }),
+    "filter:all": frozenset({"control:unconditional"}),
+    "role:identity_zero": frozenset({
+        "control:init", "dst:acc", "effect:set", "effect_rhs:0",
+    }),
+    "role:list_reduce": frozenset({
+        "control:loop", "iter:x", "source:xs",
+        "control:end", "control:return", "effect_rhs:acc",
+    }),
+}
+
+
+def concept_accepts_factor(concept: str, component: str) -> bool:
+    return component in _CONCEPT_FACTOR_COMPONENTS.get(concept, frozenset())
+
+
 class SparseFlyAgent:
     """Fast TD policy plus exact-context and compositional slow memories."""
 
@@ -152,16 +225,19 @@ class SparseFlyAgent:
         self.weights: dict[str, np.ndarray] = {}
         self.slow_weights: dict[str, dict[str, dict[int, float]]] = {}
         self.concept_weights: dict[str, dict[str, dict[int, float]]] = {}
+        self.factor_concept_weights: dict[str, dict[str, dict[int, float]]] = {}
         self._active_context = "global"
         self._active_concepts: tuple[str, ...] = ()
         self._last_memory_features: tuple[int, ...] = ()
         self.traces: dict[str, np.ndarray] = {}
         self.memory_traces: dict[str, np.ndarray] = {}
+        self.factor_memory_traces: dict[str, np.ndarray] = {}
         self.history: deque[str] = deque(maxlen=self.config.history)
 
     def begin_episode(self) -> None:
         self.traces.clear()
         self.memory_traces.clear()
+        self.factor_memory_traces.clear()
         self.history.clear()
 
     @staticmethod
@@ -241,6 +317,25 @@ class SparseFlyAgent:
             for action, keys in keys_by_action.items()
         }
 
+    @staticmethod
+    def _factor_table_q(
+        concept: str,
+        table: dict[str, dict[int, float]],
+        action: str,
+        features: tuple[int, ...],
+    ) -> float:
+        keys = tuple(
+            key for key in factor_memory_components(action)
+            if concept_accepts_factor(concept, key)
+        )
+        if not keys:
+            return 0.0
+        total = 0.0
+        for key in keys:
+            weights = table.get(key, {})
+            total += sum(weights.get(i, 0.0) for i in features)
+        return total / math.sqrt(max(1, len(features) * len(keys)))
+
     def _q_with_fast(
         self,
         action: str,
@@ -258,6 +353,8 @@ class SparseFlyAgent:
             )
 
         for concept in self._active_concepts:
+            if concept.startswith("role:"):
+                continue
             table = self.concept_weights.get(concept)
             if table:
                 slow_values.append(
@@ -268,6 +365,26 @@ class SparseFlyAgent:
 
         if slow_values:
             total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
+
+        role_mix = min(1.0, max(0.0, self.config.role_factor_mix))
+        if role_mix > 0.0:
+            role_values = []
+            for concept in self._active_concepts:
+                if not concept.startswith("role:"):
+                    continue
+                table = self.factor_concept_weights.get(concept)
+                if table:
+                    value = self._factor_table_q(
+                        concept, table, action, memory_features
+                    )
+                    if value != 0.0:
+                        role_values.append(value)
+            if role_values:
+                total += (
+                    self.config.slow_mix
+                    * role_mix
+                    * (sum(role_values) / len(role_values))
+                )
         return total
 
     def q(
@@ -345,9 +462,32 @@ class SparseFlyAgent:
 
     def _consolidate_concepts(self) -> None:
         rate = self.config.consolidation_rate
+
+        # Established v0.9 broad memory: unchanged, and role concepts are
+        # deliberately excluded so role_mix=0 is behaviorally identical.
         for concept in self._active_concepts:
+            if concept.startswith("role:"):
+                continue
             table = self.concept_weights.setdefault(concept, {})
             for model_key, eligibility in self.memory_traces.items():
+                weights = table.setdefault(model_key, {})
+                for raw_index in np.flatnonzero(eligibility):
+                    index = int(raw_index)
+                    trace_value = float(eligibility[index])
+                    if trace_value <= 0:
+                        continue
+                    old = weights.get(index, 0.0)
+                    gain = min(1.0, rate * trace_value)
+                    weights[index] = old + gain * (1.0 - old)
+
+        # Independent factor channel. It may learn silently while gated off.
+        for concept in self._active_concepts:
+            if not concept.startswith("role:"):
+                continue
+            table = self.factor_concept_weights.setdefault(concept, {})
+            for model_key, eligibility in self.factor_memory_traces.items():
+                if not concept_accepts_factor(concept, model_key):
+                    continue
                 weights = table.setdefault(model_key, {})
                 for raw_index in np.flatnonzero(eligibility):
                     index = int(raw_index)
@@ -385,12 +525,18 @@ class SparseFlyAgent:
             eligibility *= decay
         for eligibility in self.memory_traces.values():
             eligibility *= decay
+        for eligibility in self.factor_memory_traces.values():
+            eligibility *= decay
 
         fast_keys = action_components(action)
         memory_keys = memory_action_components(action)
+        factor_keys = factor_memory_components(action)
         fast_scale = 1.0 / math.sqrt(max(1, len(features) * len(fast_keys)))
         memory_scale = 1.0 / math.sqrt(
             max(1, len(self._last_memory_features) * len(memory_keys))
+        )
+        factor_scale = 1.0 / math.sqrt(
+            max(1, len(self._last_memory_features) * max(1, len(factor_keys)))
         )
         fast_indices = np.asarray(features, dtype=np.intp)
         memory_indices = np.asarray(self._last_memory_features, dtype=np.intp)
@@ -408,6 +554,13 @@ class SparseFlyAgent:
                 eligibility = np.zeros(self.config.expansion_width, dtype=np.float64)
                 self.memory_traces[model_key] = eligibility
             eligibility[memory_indices] += memory_scale
+
+        for model_key in factor_keys:
+            eligibility = self.factor_memory_traces.get(model_key)
+            if eligibility is None:
+                eligibility = np.zeros(self.config.expansion_width, dtype=np.float64)
+                self.factor_memory_traces[model_key] = eligibility
+            eligibility[memory_indices] += factor_scale
 
         update_scale = self.config.alpha * delta
         for model_key, eligibility in self.traces.items():
@@ -435,7 +588,12 @@ class SparseFlyAgent:
             for concept in self.concept_weights.values()
             for weights in concept.values()
         )
-        return contextual + conceptual
+        factor_conceptual = sum(
+            len(weights)
+            for concept in self.factor_concept_weights.values()
+            for weights in concept.values()
+        )
+        return contextual + conceptual + factor_conceptual
 
     def parameter_count(self) -> int:
         return self.fast_parameter_count() + self.slow_parameter_count()
