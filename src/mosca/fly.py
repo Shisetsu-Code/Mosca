@@ -5,6 +5,7 @@ import math
 import random
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable
 
 import numpy as np
@@ -29,11 +30,43 @@ class SparseEncoder:
         self.width = width
         self.hashes_per_token = hashes_per_token
 
-    def _indices(self, token: str) -> Iterable[int]:
+    @lru_cache(maxsize=4096)
+    def _indices(self, token: str) -> tuple[int, ...]:
         digest = hashlib.blake2b(token.encode(), digest_size=32, person=b"mosca-kc").digest()
-        for i in range(self.hashes_per_token):
-            start = i * 4
-            yield int.from_bytes(digest[start:start + 4], "little") % self.width
+        return tuple(
+            int.from_bytes(digest[i * 4:i * 4 + 4], "little") % self.width
+            for i in range(self.hashes_per_token)
+        )
+
+    @lru_cache(maxsize=16384)
+    def _encode_cached(
+        self,
+        first_hole: object,
+        holes: int,
+        nodes: int,
+        steps: int,
+        sensory: tuple[str, ...],
+        tags: tuple[tuple[str, int], ...],
+        history: tuple[str, ...],
+        include_sensory: bool,
+    ) -> tuple[int, ...]:
+        tokens = [
+            f"hole:{first_hole}",
+            f"holes:{holes}",
+            f"nodes:{nodes}",
+            f"steps:{steps}",
+        ]
+        if include_sensory:
+            tokens.extend(f"sense:{token}" for token in sensory)
+        tokens.extend(f"tag:{tag}:{count}" for tag, count in tags)
+        tokens.extend(
+            f"hist:{pos}:{action}"
+            for pos, action in enumerate(reversed(history))
+        )
+        active: set[int] = set()
+        for token in tokens:
+            active.update(self._indices(token))
+        return tuple(sorted(active))
 
     def encode(
         self,
@@ -42,23 +75,24 @@ class SparseEncoder:
         *,
         include_sensory: bool = True,
     ) -> tuple[int, ...]:
-        tokens = [
-            f"hole:{observation.get('first_hole')}",
-            f"holes:{min(int(observation.get('holes', 0)), 12)}",
-            f"nodes:{min(int(observation.get('nodes', 0)) // 2, 16)}",
-            f"steps:{min(int(observation.get('steps', 0)) // 3, 16)}",
-        ]
-        if include_sensory:
-            for token in observation.get("sensory", ()):
-                tokens.append(f"sense:{token}")
-        for tag, count in sorted(observation.get("tags", {}).items()):
-            tokens.append(f"tag:{tag}:{min(int(count), 4)}")
-        for pos, action in enumerate(reversed(history)):
-            tokens.append(f"hist:{pos}:{action}")
-        active: set[int] = set()
-        for token in tokens:
-            active.update(self._indices(token))
-        return tuple(sorted(active))
+        sensory = (
+            tuple(str(token) for token in observation.get("sensory", ()))
+            if include_sensory else ()
+        )
+        tags = tuple(
+            (str(tag), min(int(count), 4))
+            for tag, count in sorted(observation.get("tags", {}).items())
+        )
+        return self._encode_cached(
+            observation.get("first_hole"),
+            min(int(observation.get("holes", 0)), 12),
+            min(int(observation.get("nodes", 0)) // 2, 16),
+            min(int(observation.get("steps", 0)) // 3, 16),
+            sensory,
+            tags,
+            tuple(history),
+            include_sensory,
+        )
 
 
 def action_components(action: str) -> tuple[str, ...]:

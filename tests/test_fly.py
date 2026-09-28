@@ -88,3 +88,13 @@ def test_eligibility_traces_use_dense_numpy_vectors():
     assert agent.memory_traces
     assert all(isinstance(v, np.ndarray) for v in agent.traces.values())
     assert all(isinstance(v, np.ndarray) for v in agent.memory_traces.values())
+
+
+def test_encoder_reuses_recurrent_state_cache():
+    enc = SparseEncoder(width=1024, hashes_per_token=3)
+    obs = MotorMaze(TASKS["sum_list"]).observe()
+    first = enc.encode(obs, ("SET:acc=0",))
+    before = enc._encode_cached.cache_info().hits
+    second = enc.encode(obs, ("SET:acc=0",))
+    assert first == second
+    assert enc._encode_cached.cache_info().hits > before

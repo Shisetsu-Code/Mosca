@@ -6,6 +6,7 @@ on:
       - exp/resource-profile
       - exp/numpy-fastweights
       - exp/numpy-traces
+      - exp/encoder-state-cache
   workflow_dispatch:
 
 jobs:
