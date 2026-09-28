@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, replace
 from .ast_env import ASTMaze
 from .fly import FlyConfig, SparseFlyAgent
 from .motor_env import OracleCounter
-from .tasks import SOURCE_TASKS, TASKS, TRANSFER_TASKS, Task
+from .tasks import EXTRA_SOURCE_TASKS, SOURCE_TASKS, TASKS, TRANSFER_TASKS, Task
 
 
 DEFAULT_TRANSFER_ROLE_FACTOR_MIX = 0.30
@@ -686,6 +686,240 @@ def transfer_suite(
         "source_curriculum": source_curriculum,
         "seeds": list(seeds),
         "targets": list(TRANSFER_TASKS),
+        "summary": summary,
+        "runs": runs,
+    }
+
+
+NOVEL_FACTOR_MODULES: dict[str, str] = {
+    "count_negative": "filter:negative",
+    "min_list": "agg:min",
+}
+
+
+def _transplant_factor_concept(
+    target: SparseFlyAgent,
+    source: SparseFlyAgent,
+    concept: str,
+) -> bool:
+    table = source.factor_concept_weights.get(concept)
+    if not table:
+        return False
+    target.factor_concept_weights[concept] = copy.deepcopy(table)
+    return True
+
+
+def _train_factor_module(
+    base_agent: SparseFlyAgent,
+    task: Task,
+    concept: str,
+    episodes: int,
+    counter: OracleCounter,
+) -> tuple[SparseFlyAgent, dict]:
+    module_agent = copy.deepcopy(base_agent)
+    visible_solutions = 0
+    generalized = 0
+    first_generalized = None
+
+    for episode in range(1, episodes + 1):
+        train_score, hidden_score = _learn_motor_episode(
+            module_agent,
+            task,
+            counter=counter,
+        )
+        if train_score == 1.0:
+            visible_solutions += 1
+        if hidden_score == 1.0:
+            generalized += 1
+            first_generalized = first_generalized or episode
+
+    return module_agent, {
+        "task": task.name,
+        "concept": concept,
+        "episodes": episodes,
+        "visible_solutions": visible_solutions,
+        "generalized": generalized,
+        "first_generalized": first_generalized,
+        "factor_parameters": sum(
+            len(weights)
+            for weights in module_agent.factor_concept_weights.get(concept, {}).values()
+        ),
+        "oracle": counter.snapshot(),
+    }
+
+
+def modular_transfer_suite(
+    core_pretrain_episodes: int = 600,
+    module_episodes: int = 200,
+    adapt_episodes: int = 250,
+    seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+    role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
+    agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
+    filter_factor_mix: float = 0.25,
+) -> dict:
+    """Train novel semantic modules on disposable branches, then transplant only
+    their factor memories into the stable core agent.
+    """
+
+    core_sources = tuple(TASKS.values())
+    runs: list[dict] = []
+
+    for seed in seeds:
+        pretrained = SparseFlyAgent(_motor_config(0.0, 0.0, 0.0), seed=seed)
+        core_counter = OracleCounter()
+        for episode in range(core_pretrain_episodes):
+            _learn_motor_episode(
+                pretrained,
+                core_sources[episode % len(core_sources)],
+                counter=core_counter,
+            )
+
+        core_fast_parameters = pretrained.fast_parameter_count()
+        module_stats: dict[str, dict] = {}
+
+        for task_name, concept in NOVEL_FACTOR_MODULES.items():
+            module_counter = OracleCounter()
+            module_agent, stats = _train_factor_module(
+                pretrained,
+                EXTRA_SOURCE_TASKS[task_name],
+                concept,
+                module_episodes,
+                module_counter,
+            )
+            stats["copied"] = _transplant_factor_concept(
+                pretrained,
+                module_agent,
+                concept,
+            )
+            module_stats[task_name] = stats
+
+        # Branch training must never alter the stable core fast policy.
+        assert pretrained.fast_parameter_count() == core_fast_parameters
+
+        seed_result = {
+            "seed": seed,
+            "core_pretrain_oracle": core_counter.snapshot(),
+            "modules": module_stats,
+            "targets": {},
+        }
+
+        for target_name, target in TRANSFER_TASKS.items():
+            transfer_agent = copy.deepcopy(pretrained)
+            target_config = _target_config(
+                transfer_agent.config,
+                role_factor_mix=role_factor_mix,
+                agg_factor_mix=agg_factor_mix,
+                filter_factor_mix=filter_factor_mix,
+            )
+            transfer_agent.config = target_config
+            scratch_agent = SparseFlyAgent(target_config, seed=seed)
+
+            transfer_zero = _zero_shot_summary(
+                copy.deepcopy(transfer_agent),
+                target,
+            )
+            scratch_zero = _zero_shot_summary(
+                copy.deepcopy(scratch_agent),
+                target,
+            )
+            transfer_counter = OracleCounter()
+            scratch_counter = OracleCounter()
+            transfer = _adapt_summary(
+                transfer_agent,
+                target,
+                adapt_episodes,
+                counter=transfer_counter,
+            )
+            scratch = _adapt_summary(
+                scratch_agent,
+                target,
+                adapt_episodes,
+                counter=scratch_counter,
+            )
+            seed_result["targets"][target_name] = {
+                "transfer_zero_shot": transfer_zero,
+                "scratch_zero_shot": scratch_zero,
+                "transfer": transfer,
+                "scratch": scratch,
+            }
+
+        runs.append(seed_result)
+
+    summary: dict[str, dict] = {}
+    for target_name in TRANSFER_TASKS:
+        target_runs = [run["targets"][target_name] for run in runs]
+
+        def aggregate(key: str) -> dict:
+            successful = [
+                item[key] for item in target_runs
+                if item[key]["first_generalized"] is not None
+            ]
+            first = [item["first_generalized"] for item in successful]
+            oracle_first = [
+                item["oracle_at_first_generalized"] for item in successful
+                if item["oracle_at_first_generalized"] is not None
+            ]
+            return {
+                "seed_successes": len(successful),
+                "mean_first_generalized": (
+                    sum(first) / len(first) if first else None
+                ),
+                "best_first_generalized": min(first) if first else None,
+                "total_generalized": sum(
+                    item[key]["generalized"] for item in target_runs
+                ),
+                "mean_visible_oracle_calls_at_first_generalized": (
+                    sum(x["visible_oracle_calls"] for x in oracle_first)
+                    / len(oracle_first)
+                    if oracle_first else None
+                ),
+            }
+
+        transfer = aggregate("transfer")
+        scratch = aggregate("scratch")
+        summary[target_name] = {
+            "transfer": transfer,
+            "scratch": scratch,
+            "zero_shot": {
+                "transfer_seed_successes": sum(
+                    item["transfer_zero_shot"]["generalized"] > 0
+                    for item in target_runs
+                ),
+                "scratch_seed_successes": sum(
+                    item["scratch_zero_shot"]["generalized"] > 0
+                    for item in target_runs
+                ),
+            },
+        }
+
+    module_summary: dict[str, dict] = {}
+    for task_name in NOVEL_FACTOR_MODULES:
+        rows = [run["modules"][task_name] for run in runs]
+        module_summary[task_name] = {
+            "seed_successes": sum(row["generalized"] > 0 for row in rows),
+            "mean_first_generalized": (
+                sum(row["first_generalized"] for row in rows if row["first_generalized"] is not None)
+                / max(1, sum(row["first_generalized"] is not None for row in rows))
+            ),
+            "copied_seeds": sum(bool(row["copied"]) for row in rows),
+            "mean_factor_parameters": (
+                sum(row["factor_parameters"] for row in rows) / len(rows)
+            ),
+        }
+
+    return {
+        "core_pretrain_episodes": core_pretrain_episodes,
+        "module_episodes_per_task": module_episodes,
+        "total_source_episode_budget": (
+            core_pretrain_episodes
+            + module_episodes * len(NOVEL_FACTOR_MODULES)
+        ),
+        "adapt_episodes": adapt_episodes,
+        "role_factor_mix": role_factor_mix,
+        "agg_factor_mix": agg_factor_mix,
+        "filter_factor_mix": filter_factor_mix,
+        "seeds": list(seeds),
+        "module_summary": module_summary,
         "summary": summary,
         "runs": runs,
     }

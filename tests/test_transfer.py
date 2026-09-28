@@ -154,3 +154,19 @@ def test_validated_transfer_defaults_are_enabled():
     assert result["role_factor_mix"] == DEFAULT_TRANSFER_ROLE_FACTOR_MIX == 0.30
     assert result["agg_factor_mix"] == DEFAULT_TRANSFER_AGG_FACTOR_MIX == 0.15
     assert result["filter_factor_mix"] == DEFAULT_TRANSFER_FILTER_FACTOR_MIX == 0.0
+
+
+def test_modular_transfer_suite_smoke():
+    from mosca.benchmark import modular_transfer_suite
+
+    result = modular_transfer_suite(
+        core_pretrain_episodes=6,
+        module_episodes=3,
+        adapt_episodes=2,
+        seeds=(0,),
+        filter_factor_mix=0.25,
+    )
+    assert result["total_source_episode_budget"] == 12
+    assert set(result["module_summary"]) == {"count_negative", "min_list"}
+    assert set(result["summary"]) == set(TRANSFER_TASKS)
+    assert len(result["runs"]) == 1

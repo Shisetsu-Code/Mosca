@@ -11,6 +11,7 @@ from .benchmark import (
     benchmark_json,
     motor_benchmark,
     motor_multiseed,
+    modular_transfer_suite,
     transfer_benchmark,
     transfer_multiseed,
     transfer_suite,
@@ -120,6 +121,26 @@ def main() -> None:
         default=DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
     )
 
+    modular = sub.add_parser(
+        "modular-transfer-suite",
+        help="train extra source concepts on disposable branches and transplant factor memory",
+    )
+    modular.add_argument("--core-pretrain-episodes", type=int, default=600)
+    modular.add_argument("--module-episodes", type=int, default=200)
+    modular.add_argument("--adapt-episodes", type=int, default=250)
+    modular.add_argument("--seeds", default="0,1,2,3,4")
+    modular.add_argument(
+        "--role-factor-mix",
+        type=float,
+        default=DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
+    )
+    modular.add_argument(
+        "--agg-factor-mix",
+        type=float,
+        default=DEFAULT_TRANSFER_AGG_FACTOR_MIX,
+    )
+    modular.add_argument("--filter-factor-mix", type=float, default=0.25)
+
     mcts = sub.add_parser("mcts-benchmark", help="UCT baseline over the same MotorMaze")
     mcts.add_argument("--simulations", type=int, default=500)
     mcts.add_argument("--seed", type=int, default=42)
@@ -214,6 +235,22 @@ def main() -> None:
                 args.agg_factor_mix,
                 args.filter_factor_mix,
                 args.source_curriculum,
+            ),
+            indent=2,
+            sort_keys=True,
+        ))
+        return
+    if args.command == "modular-transfer-suite":
+        seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
+        print(json.dumps(
+            modular_transfer_suite(
+                core_pretrain_episodes=args.core_pretrain_episodes,
+                module_episodes=args.module_episodes,
+                adapt_episodes=args.adapt_episodes,
+                seeds=seeds,
+                role_factor_mix=args.role_factor_mix,
+                agg_factor_mix=args.agg_factor_mix,
+                filter_factor_mix=args.filter_factor_mix,
             ),
             indent=2,
             sort_keys=True,
