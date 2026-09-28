@@ -22,7 +22,8 @@ class FlyConfig:
     consolidation_rate: float = 0.0
     slow_mix: float = 0.0
     role_factor_mix: float = 0.0
-    filter_all_factor_mix: float = 0.0
+    agg_factor_mix: float = 0.0
+    filter_factor_mix: float = 0.0
     consolidation_threshold: float = 7.0
 
 
@@ -367,37 +368,33 @@ class SparseFlyAgent:
         if slow_values:
             total += self.config.slow_mix * (sum(slow_values) / len(slow_values))
 
-        role_mix = min(1.0, max(0.0, self.config.role_factor_mix))
-        if role_mix > 0.0:
-            role_values = []
-            for concept in self._active_concepts:
-                if not concept.startswith("role:"):
-                    continue
-                table = self.factor_concept_weights.get(concept)
-                if table:
-                    value = self._factor_table_q(
-                        concept, table, action, memory_features
-                    )
-                    if value != 0.0:
-                        role_values.append(value)
-            if role_values:
-                total += (
-                    self.config.slow_mix
-                    * role_mix
-                    * (sum(role_values) / len(role_values))
-                )
+        factor_values = []
+        for concept in self._active_concepts:
+            if concept.startswith("role:"):
+                mix = self.config.role_factor_mix
+            elif concept.startswith("agg:"):
+                mix = self.config.agg_factor_mix
+            elif concept.startswith("filter:"):
+                mix = self.config.filter_factor_mix
+            else:
+                mix = 0.0
 
-        filter_all_mix = min(
-            1.0, max(0.0, self.config.filter_all_factor_mix)
-        )
-        if filter_all_mix > 0.0 and "filter:all" in self._active_concepts:
-            table = self.factor_concept_weights.get("filter:all")
-            if table:
-                value = self._factor_table_q(
-                    "filter:all", table, action, memory_features
-                )
-                if value != 0.0:
-                    total += self.config.slow_mix * filter_all_mix * value
+            mix = min(1.0, max(0.0, mix))
+            if mix <= 0.0:
+                continue
+            table = self.factor_concept_weights.get(concept)
+            if not table:
+                continue
+            value = self._factor_table_q(
+                concept, table, action, memory_features
+            )
+            if value != 0.0:
+                factor_values.append(mix * value)
+
+        if factor_values:
+            total += self.config.slow_mix * (
+                sum(factor_values) / len(factor_values)
+            )
         return total
 
     def q(
@@ -493,12 +490,9 @@ class SparseFlyAgent:
                     gain = min(1.0, rate * trace_value)
                     weights[index] = old + gain * (1.0 - old)
 
-        # Independent factor channel. It may learn silently while gated off.
+        # Independent factor channel for all semantic concepts. It learns
+        # silently while its per-family gate is zero.
         for concept in self._active_concepts:
-            if not (
-                concept.startswith("role:") or concept == "filter:all"
-            ):
-                continue
             table = self.factor_concept_weights.setdefault(concept, {})
             for model_key, eligibility in self.factor_memory_traces.items():
                 if not concept_accepts_factor(concept, model_key):
