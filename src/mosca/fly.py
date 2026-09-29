@@ -116,6 +116,11 @@ def action_components(action: str) -> tuple[str, ...]:
         keys += (f"cmp:{action.split(':', 1)[1]}",)
     elif action.startswith("RHS:"):
         keys += (f"cond_rhs:{action.split(':', 1)[1]}",)
+    elif action.startswith("COND:"):
+        cond = action.split(":", 1)[1]
+        symbol = "==" if cond.startswith("==") else cond[0]
+        rhs = cond[len(symbol):]
+        keys += ("op:WHEN", "lhs:x", f"cmp:{symbol}", f"cond_rhs:{rhs}")
     elif action.startswith("DO:"):
         keys += (f"update:{action.split(':', 1)[1]}",)
     elif action == "END":
@@ -178,6 +183,14 @@ def memory_action_components(action: str) -> tuple[str, ...]:
         keys += (f"cmp:{action.split(':', 1)[1]}",)
     elif action.startswith("RHS:"):
         keys += (f"cond_rhs:{action.split(':', 1)[1]}",)
+    elif action.startswith("COND:"):
+        cond = action.split(":", 1)[1]
+        symbol = "==" if cond.startswith("==") else cond[0]
+        rhs = cond[len(symbol):]
+        keys += (
+            "control:conditional", "lhs:x",
+            f"cmp:{symbol}", f"cond_rhs:{rhs}",
+        )
     elif action.startswith("DO:"):
         effect, rhs = {
             "SETX": ("set", "x"),
@@ -245,6 +258,14 @@ def factor_memory_components(action: str) -> tuple[str, ...]:
         keys += (f"cmp:{action.split(':', 1)[1]}",)
     elif action.startswith("RHS:"):
         keys += (f"cond_rhs:{action.split(':', 1)[1]}",)
+    elif action.startswith("COND:"):
+        cond = action.split(":", 1)[1]
+        symbol = "==" if cond.startswith("==") else cond[0]
+        rhs = cond[len(symbol):]
+        keys += (
+            "control:conditional", "lhs:x",
+            f"cmp:{symbol}", f"cond_rhs:{rhs}",
+        )
     elif action.startswith("DO:"):
         effect, rhs = {
             "SETX": ("set", "x"),

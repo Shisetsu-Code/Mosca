@@ -2,6 +2,7 @@ from mosca.benchmark import _learn_motor_episode, transfer_benchmark
 from mosca.fly import FlyConfig, SparseFlyAgent
 from mosca.mcts import mcts_solve
 from mosca.motor_env import MotorMaze, OracleCounter
+from mosca.compact2_world import Compact2World
 from mosca.compact_world import CompactWorld
 from mosca.native_world import NativeWorld
 from mosca.resource import resource_benchmark
@@ -325,3 +326,62 @@ def test_compact_mcts_can_find_sum_program():
     )
     assert result.first_generalizing_at is not None
     assert result.best_hidden_score == 1.0
+
+
+COMPACT2_PROGRAMS = {
+    "sum_list": (
+        "INIT:0", "EACH", "ADDX", "END", "YIELD",
+    ),
+    "count_positive": (
+        "INIT:0", "EACH", "COND:>0", "DO:INC1", "END", "YIELD",
+    ),
+    "max_list": (
+        "INIT:first", "EACH", "COND:>acc", "DO:SETX", "END", "YIELD",
+    ),
+}
+
+
+def test_compact2_world_is_registered_and_solves_reference_programs():
+    assert "compact2" in world_names()
+    world = create_world("compact2", TASKS["sum_list"])
+    assert isinstance(world, Compact2World)
+
+    for task_name, actions in COMPACT2_PROGRAMS.items():
+        world = create_world("compact2", TASKS[task_name])
+        for action in actions:
+            world.step(action)
+        assert world.last_evaluation is not None
+        assert world.last_evaluation.score == 1.0
+        assert world.evaluate_hidden().score == 1.0
+
+
+def test_compact2_is_middle_ground_between_original_and_compact():
+    python = create_world("python", TASKS["count_positive"])
+    compact = create_world("compact", TASKS["count_positive"])
+    compact2 = create_world("compact2", TASKS["count_positive"])
+
+    python.step("SET:acc=0")
+    python.step("FOR:x:xs")
+    compact.step("INIT:0")
+    compact.step("EACH")
+    compact2.step("INIT:0")
+    compact2.step("EACH")
+
+    assert len(compact.valid_actions()) < len(compact2.valid_actions())
+    assert len(compact2.valid_actions()) < len(python.valid_actions())
+    assert len(COMPACT2_PROGRAMS["count_positive"]) == 6
+    assert len(COMPACT_PROGRAMS["count_positive"]) == 8
+
+
+def test_compact2_condition_action_carries_full_condition_semantics():
+    from mosca.fly import (
+        action_components,
+        factor_memory_components,
+        memory_action_components,
+    )
+
+    for fn in (action_components, memory_action_components, factor_memory_components):
+        keys = set(fn("COND:<0"))
+        assert "cmp:<" in keys
+        assert "cond_rhs:0" in keys
+    assert "control:conditional" in memory_action_components("COND:<0")
