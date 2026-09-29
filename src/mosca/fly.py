@@ -121,6 +121,16 @@ def action_components(action: str) -> tuple[str, ...]:
         symbol = "==" if cond.startswith("==") else cond[0]
         rhs = cond[len(symbol):]
         keys += ("op:WHEN", "lhs:x", f"cmp:{symbol}", f"cond_rhs:{rhs}")
+    elif action.startswith("OP:"):
+        keys += (f"update:{action.split(':', 1)[1]}",)
+    elif action.startswith("APPLY:"):
+        scope = action.split(":", 1)[1]
+        if scope == "ALWAYS":
+            keys += ("op:APPLY", "scope:always")
+        else:
+            symbol = "==" if scope.startswith("==") else scope[0]
+            rhs = scope[len(symbol):]
+            keys += ("op:WHEN", "lhs:x", f"cmp:{symbol}", f"cond_rhs:{rhs}")
     elif action.startswith("DO:"):
         keys += (f"update:{action.split(':', 1)[1]}",)
     elif action == "END":
@@ -191,6 +201,24 @@ def memory_action_components(action: str) -> tuple[str, ...]:
             "control:conditional", "lhs:x",
             f"cmp:{symbol}", f"cond_rhs:{rhs}",
         )
+    elif action.startswith("OP:"):
+        effect, rhs = {
+            "SETX": ("set", "x"),
+            "INC1": ("add", "1"),
+            "ADDX": ("add", "x"),
+        }[action.split(":", 1)[1]]
+        keys += ("dst:acc", f"effect:{effect}", f"effect_rhs:{rhs}")
+    elif action.startswith("APPLY:"):
+        scope = action.split(":", 1)[1]
+        if scope == "ALWAYS":
+            keys += ("control:unconditional",)
+        else:
+            symbol = "==" if scope.startswith("==") else scope[0]
+            rhs = scope[len(symbol):]
+            keys += (
+                "control:conditional", "lhs:x",
+                f"cmp:{symbol}", f"cond_rhs:{rhs}",
+            )
     elif action.startswith("DO:"):
         effect, rhs = {
             "SETX": ("set", "x"),
@@ -266,6 +294,24 @@ def factor_memory_components(action: str) -> tuple[str, ...]:
             "control:conditional", "lhs:x",
             f"cmp:{symbol}", f"cond_rhs:{rhs}",
         )
+    elif action.startswith("OP:"):
+        effect, rhs = {
+            "SETX": ("set", "x"),
+            "INC1": ("add", "1"),
+            "ADDX": ("add", "x"),
+        }[action.split(":", 1)[1]]
+        keys += ("dst:acc", f"effect:{effect}", f"effect_rhs:{rhs}")
+    elif action.startswith("APPLY:"):
+        scope = action.split(":", 1)[1]
+        if scope == "ALWAYS":
+            keys += ("control:unconditional",)
+        else:
+            symbol = "==" if scope.startswith("==") else scope[0]
+            rhs = scope[len(symbol):]
+            keys += (
+                "control:conditional", "lhs:x",
+                f"cmp:{symbol}", f"cond_rhs:{rhs}",
+            )
     elif action.startswith("DO:"):
         effect, rhs = {
             "SETX": ("set", "x"),

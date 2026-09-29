@@ -38,3 +38,5 @@ jobs:
       - run: mosca mcts-benchmark --simulations 120 --seed 42 --world compact
       - run: mosca motor-benchmark --episodes 80 --seed 42 --world compact2
       - run: mosca mcts-benchmark --simulations 120 --seed 42 --world compact2
+      - run: mosca motor-benchmark --episodes 80 --seed 42 --world factorized
+      - run: mosca mcts-benchmark --simulations 120 --seed 42 --world factorized

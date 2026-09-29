@@ -4,6 +4,7 @@ from mosca.mcts import mcts_solve
 from mosca.motor_env import MotorMaze, OracleCounter
 from mosca.compact2_world import Compact2World
 from mosca.compact_world import CompactWorld
+from mosca.factorized_world import FactorizedWorld
 from mosca.native_world import NativeWorld
 from mosca.resource import resource_benchmark
 from mosca.tasks import TASKS
@@ -385,3 +386,73 @@ def test_compact2_condition_action_carries_full_condition_semantics():
         assert "cmp:<" in keys
         assert "cond_rhs:0" in keys
     assert "control:conditional" in memory_action_components("COND:<0")
+
+
+FACTORIZED_PROGRAMS = {
+    "sum_list": (
+        "INIT:0", "EACH", "OP:ADDX", "APPLY:ALWAYS", "END", "YIELD",
+    ),
+    "count_positive": (
+        "INIT:0", "EACH", "OP:INC1", "APPLY:>0", "END", "YIELD",
+    ),
+    "max_list": (
+        "INIT:first", "EACH", "OP:SETX", "APPLY:>acc", "END", "YIELD",
+    ),
+}
+
+
+def test_factorized_world_is_registered_and_solves_reference_programs():
+    assert "factorized" in world_names()
+    world = create_world("factorized", TASKS["sum_list"])
+    assert isinstance(world, FactorizedWorld)
+
+    for task_name, actions in FACTORIZED_PROGRAMS.items():
+        world = create_world("factorized", TASKS[task_name])
+        for action in actions:
+            world.step(action)
+        assert world.last_evaluation is not None
+        assert world.last_evaluation.score == 1.0
+        assert world.evaluate_hidden().score == 1.0
+
+
+def test_factorized_world_preserves_semantic_choice_count_with_lower_branching():
+    python = create_world("python", TASKS["count_positive"])
+    factorized = create_world("factorized", TASKS["count_positive"])
+
+    python.step("SET:acc=0")
+    python.step("FOR:x:xs")
+    factorized.step("INIT:0")
+    factorized.step("EACH")
+
+    # Original loop has 3 unconditional + 18 conditional semantic choices.
+    assert len(python.valid_actions()) == 21
+    assert len(factorized.valid_actions()) == 3
+
+    factorized.step("OP:INC1")
+    assert len(factorized.valid_actions()) == 7
+    assert 3 * 7 == 21
+
+
+def test_factorized_action_semantics_separate_effect_from_scope():
+    from mosca.fly import (
+        action_components,
+        factor_memory_components,
+        memory_action_components,
+    )
+
+    for fn in (action_components, memory_action_components, factor_memory_components):
+        op_keys = set(fn("OP:ADDX"))
+        scope_keys = set(fn("APPLY:<0"))
+        assert "effect_rhs:x" in op_keys or "update:ADDX" in op_keys
+        assert "cmp:<" in scope_keys
+        assert "cond_rhs:0" in scope_keys
+
+
+def test_factorized_mcts_can_find_sum_program():
+    result = mcts_solve(
+        TASKS["sum_list"],
+        simulations=120,
+        seed=19,
+        world_name="factorized",
+    )
+    assert result.first_generalizing_at is not None

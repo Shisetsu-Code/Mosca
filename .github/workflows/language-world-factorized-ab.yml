@@ -1,0 +1,37 @@
+name: language-world-factorized-ab
+
+on:
+  push:
+    branches:
+      - exp/mosca-factorized-world
+  workflow_dispatch:
+
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        world: [python, compact2, factorized]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - run: python -m pip install -e .[dev]
+      - run: >-
+          mosca motor-multiseed
+          --episodes 500
+          --seeds 0,1,2,3,4
+          --world ${{ matrix.world }}
+      - run: >-
+          mosca mcts-multiseed
+          --simulations 500
+          --seeds 0,1,2,3,4
+          --world ${{ matrix.world }}
+      - run: >-
+          mosca transfer-suite
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds 0,1,2,3,4
+          --world ${{ matrix.world }}
