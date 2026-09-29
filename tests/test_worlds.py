@@ -2,6 +2,7 @@ from mosca.benchmark import _learn_motor_episode, transfer_benchmark
 from mosca.fly import FlyConfig, SparseFlyAgent
 from mosca.mcts import mcts_solve
 from mosca.motor_env import MotorMaze, OracleCounter
+from mosca.compact_world import CompactWorld
 from mosca.native_world import NativeWorld
 from mosca.resource import resource_benchmark
 from mosca.tasks import TASKS
@@ -241,3 +242,86 @@ def test_native_world_mcts_matches_python_search_path():
         == native.visible_oracle_calls_at_first_generalizing
     )
     assert python.source != native.source
+
+
+def test_compact_world_is_registered():
+    assert "compact" in world_names()
+    world = create_world("compact", TASKS["count_positive"])
+    assert isinstance(world, ProgramWorld)
+    assert isinstance(world, CompactWorld)
+
+
+COMPACT_PROGRAMS = {
+    "sum_list": (
+        "INIT:0", "EACH", "ADDX", "END", "YIELD",
+    ),
+    "count_positive": (
+        "INIT:0", "EACH", "GUARD", "CMP:>", "RHS:0",
+        "DO:INC1", "END", "YIELD",
+    ),
+    "max_list": (
+        "INIT:first", "EACH", "GUARD", "CMP:>", "RHS:acc",
+        "DO:SETX", "END", "YIELD",
+    ),
+}
+
+
+def test_compact_reference_programs_match_python_semantics():
+    for task_name, actions in COMPACT_PROGRAMS.items():
+        world = create_world("compact", TASKS[task_name])
+        for action in actions:
+            world.step(action)
+        assert world.done
+        assert world.last_evaluation is not None
+        assert world.last_evaluation.score == 1.0
+        assert world.evaluate_hidden().score == 1.0
+
+
+def test_compact_language_reduces_peak_branching():
+    python = create_world("python", TASKS["count_positive"])
+    compact = create_world("compact", TASKS["count_positive"])
+
+    python_actions = (
+        "SET:acc=0", "FOR:x:xs", "WHEN:x>0:INC1", "END", "RETURN:acc",
+    )
+    compact_actions = COMPACT_PROGRAMS["count_positive"]
+
+    def branch_profile(world, actions):
+        profile = []
+        for action in actions:
+            profile.append(len(world.valid_actions()))
+            world.step(action)
+        return profile
+
+    python_profile = branch_profile(python, python_actions)
+    compact_profile = branch_profile(compact, compact_actions)
+
+    assert max(compact_profile) <= 5
+    assert max(compact_profile) < max(python_profile)
+    assert len(compact_actions) > len(python_actions)
+
+
+def test_compact_action_semantics_share_canonical_components():
+    from mosca.fly import (
+        action_components,
+        factor_memory_components,
+        memory_action_components,
+    )
+
+    assert "op:FOR" in action_components("EACH")
+    assert "cmp:>" in action_components("CMP:>")
+    assert "cond_rhs:0" in memory_action_components("RHS:0")
+    assert "effect:add" in memory_action_components("DO:ADDX")
+    assert "control:init" in factor_memory_components("INIT:0")
+    assert "control:conditional" in factor_memory_components("GUARD")
+
+
+def test_compact_mcts_can_find_sum_program():
+    result = mcts_solve(
+        TASKS["sum_list"],
+        simulations=120,
+        seed=17,
+        world_name="compact",
+    )
+    assert result.first_generalizing_at is not None
+    assert result.best_hidden_score == 1.0

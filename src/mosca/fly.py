@@ -97,8 +97,31 @@ def action_components(action: str) -> tuple[str, ...]:
             f"cond_rhs:{right}",
             f"update:{update}",
         )
+    elif action.startswith("INIT:"):
+        rhs = action.split(":", 1)[1]
+        rhs = "xs[0]" if rhs == "first" else rhs
+        rhs_kind = "const" if rhs.lstrip("-").isdigit() else "input"
+        keys += ("op:SET", "dst:acc", f"rhs_kind:{rhs_kind}", f"rhs:{rhs}")
+    elif action == "EACH":
+        keys += ("op:FOR", "iter:x", "source:xs")
+    elif action == "SETX":
+        keys += ("op:SET", "dst:acc", "rhs_kind:var", "rhs:x")
+    elif action == "ADDX":
+        keys += ("op:AUG", "dst:acc", "arith:+", "rhs:x")
+    elif action == "INC1":
+        keys += ("op:AUG", "dst:acc", "arith:+", "rhs:1")
+    elif action == "GUARD":
+        keys += ("op:WHEN", "lhs:x")
+    elif action.startswith("CMP:"):
+        keys += (f"cmp:{action.split(':', 1)[1]}",)
+    elif action.startswith("RHS:"):
+        keys += (f"cond_rhs:{action.split(':', 1)[1]}",)
+    elif action.startswith("DO:"):
+        keys += (f"update:{action.split(':', 1)[1]}",)
     elif action == "END":
         keys += ("op:END",)
+    elif action == "YIELD":
+        keys += ("op:RETURN", "rhs:acc")
     elif action.startswith("RETURN:"):
         keys += ("op:RETURN", f"rhs:{action.split(':', 1)[1]}")
     return tuple(keys)
@@ -137,8 +160,35 @@ def memory_action_components(action: str) -> tuple[str, ...]:
             f"effect:{effect}",
             f"effect_rhs:{effect_rhs}",
         )
+    elif action.startswith("INIT:"):
+        rhs = action.split(":", 1)[1]
+        rhs = "xs[0]" if rhs == "first" else rhs
+        keys += ("control:write", "dst:acc", "effect:set", f"effect_rhs:{rhs}")
+    elif action == "EACH":
+        keys += ("control:loop", "iter:x", "source:xs")
+    elif action == "SETX":
+        keys += ("control:write", "dst:acc", "effect:set", "effect_rhs:x")
+    elif action == "ADDX":
+        keys += ("control:write", "dst:acc", "effect:add", "effect_rhs:x")
+    elif action == "INC1":
+        keys += ("control:write", "dst:acc", "effect:add", "effect_rhs:1")
+    elif action == "GUARD":
+        keys += ("control:conditional", "lhs:x")
+    elif action.startswith("CMP:"):
+        keys += (f"cmp:{action.split(':', 1)[1]}",)
+    elif action.startswith("RHS:"):
+        keys += (f"cond_rhs:{action.split(':', 1)[1]}",)
+    elif action.startswith("DO:"):
+        effect, rhs = {
+            "SETX": ("set", "x"),
+            "INC1": ("add", "1"),
+            "ADDX": ("add", "x"),
+        }[action.split(":", 1)[1]]
+        keys += ("dst:acc", f"effect:{effect}", f"effect_rhs:{rhs}")
     elif action == "END":
         keys += ("control:end",)
+    elif action == "YIELD":
+        keys += ("control:return", "effect_rhs:acc")
     elif action.startswith("RETURN:"):
         rhs = action.split(":", 1)[1]
         keys += ("control:return", f"effect_rhs:{rhs}")
@@ -177,8 +227,35 @@ def factor_memory_components(action: str) -> tuple[str, ...]:
             f"cond_rhs:{right}", "dst:acc",
             f"effect:{effect}", f"effect_rhs:{effect_rhs}",
         )
+    elif action.startswith("INIT:"):
+        rhs = action.split(":", 1)[1]
+        rhs = "xs[0]" if rhs == "first" else rhs
+        keys += ("control:init", "dst:acc", "effect:set", f"effect_rhs:{rhs}")
+    elif action == "EACH":
+        keys += ("control:loop", "iter:x", "source:xs")
+    elif action == "SETX":
+        keys += ("control:unconditional", "dst:acc", "effect:set", "effect_rhs:x")
+    elif action == "ADDX":
+        keys += ("control:unconditional", "dst:acc", "effect:add", "effect_rhs:x")
+    elif action == "INC1":
+        keys += ("control:unconditional", "dst:acc", "effect:add", "effect_rhs:1")
+    elif action == "GUARD":
+        keys += ("control:conditional", "lhs:x")
+    elif action.startswith("CMP:"):
+        keys += (f"cmp:{action.split(':', 1)[1]}",)
+    elif action.startswith("RHS:"):
+        keys += (f"cond_rhs:{action.split(':', 1)[1]}",)
+    elif action.startswith("DO:"):
+        effect, rhs = {
+            "SETX": ("set", "x"),
+            "INC1": ("add", "1"),
+            "ADDX": ("add", "x"),
+        }[action.split(":", 1)[1]]
+        keys += ("dst:acc", f"effect:{effect}", f"effect_rhs:{rhs}")
     elif action == "END":
         keys += ("control:end",)
+    elif action == "YIELD":
+        keys += ("control:return", "effect_rhs:acc")
     elif action.startswith("RETURN:"):
         rhs = action.split(":", 1)[1]
         keys += ("control:return", f"effect_rhs:{rhs}")

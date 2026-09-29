@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
+from .compact_world import CompactWorld
 from .motor_env import MotorMaze, OracleCounter
 from .native_world import NativeWorld
 from .tasks import Task
@@ -46,7 +47,16 @@ def _mosca_factory(
     return NativeWorld(task, max_steps=max_steps, counter=counter)
 
 
+def _compact_factory(
+    task: Task,
+    max_steps: int = 8,
+    counter: OracleCounter | None = None,
+) -> ProgramWorld:
+    return CompactWorld(task, max_steps=max_steps, counter=counter)
+
+
 _WORLD_FACTORIES: dict[str, WorldFactory] = {
+    "compact": _compact_factory,
     "mosca": _mosca_factory,
     "python": _python_factory,
 }
