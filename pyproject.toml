@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mosca"
-version = "0.11.0"
-description = "Program synthesis as navigation through a constrained Python state space"
+version = "0.12.0"
+description = "Program synthesis as navigation through pluggable programming worlds"
 requires-python = ">=3.12,<3.13"
 dependencies = ["numpy>=2.0,<3"]
 

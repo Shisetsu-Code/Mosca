@@ -4,9 +4,17 @@ Experimental program synthesis inspired by navigation and reward learning in *Dr
 
 Mosca treats programming as navigation through a constrained state space rather than next-token prediction. The learner never emits arbitrary Python text: CPython owns syntax and AST legality, while the learner selects legal structural or semantic actions.
 
-## Runtime
+## Runtime and program worlds
 
-The reference world is pinned to **CPython 3.12.14**. Python documentation is not used as model training data.
+The Python reference world is pinned to **CPython 3.12.14**. Python documentation is not used as model training data.
+
+v0.12 adds a second, independent `mosca` world. It executes the same semantic motor programs directly over a tiny native IR: no Python AST construction and no `compile()`. Both worlds implement the same `ProgramWorld` contract, so the learner, MCTS, transfer suite and resource profiler can run unchanged.
+
+```bash
+mosca worlds
+# python
+# mosca
+```
 
 ## Architecture
 
@@ -128,11 +136,25 @@ mosca transfer-suite \
   --source-curriculum expanded
 ```
 
-## Language A/B direction
+## First language-world A/B
 
-The next major comparison is language-level rather than only architecture-level.
+The first independent backend is now implemented. The initial comparison deliberately keeps the **same action vocabulary and branching factor** in both worlds. This isolates execution/runtime effects before changing the language itself.
 
-For Python versus a custom language, hold constant:
+Five-seed resource benchmark, identical trajectories and oracle counts:
+
+| Metric | CPython world | Native Mosca world | Change |
+|---|---:|---:|---:|
+| Full pretrain + transfer CPU | 14.73 s | **13.40 s** | **-9.1%** |
+| MCTS CPU | 0.406 s | **0.304 s** | **-25.0%** |
+| Random-search CPU | 0.470 s | **0.313 s** | **-33.5%** |
+| Transfer episodes by seed | 1, 91, 42, 24, 84 | 1, 91, 42, 24, 84 | identical |
+| Transfer oracle calls by seed | 5, 526, 257, 124, 444 | 5, 526, 257, 124, 444 | identical |
+
+Individual runner timings vary, so the important result is the paired semantic equivalence: every seed followed the same learning/search trajectory while the backend changed.
+
+This **does not yet measure the advantage of a better language grammar**. The next A/B changes the native world's action structure/branching while holding the task semantics and learner fixed.
+
+For Python versus a compact custom language, hold constant:
 
 - Mosca topology and hyperparameters;
 - semantic tasks and visible/hidden I/O cases;
@@ -149,11 +171,27 @@ Measure:
 - final program runtime and size;
 - zero-shot and adaptation transfer.
 
-The custom language should plug into the same world contract so only the programming environment changes.
+The custom language plugs into the same world contract so only the programming environment changes.
+
+## Native Mosca syntax
+
+A discovered reduction can now be rendered independently of Python:
+
+```text
+solve xs
+  acc := 0
+  each x in xs
+    when x>0 => acc += x
+  end
+  yield acc
+end
+```
+
+The current native world still exposes the canonical motor actions used by Python. This is intentional: v0.12 establishes backend equivalence first.
 
 ## Next milestones
 
-1. Add a pluggable language-world backend and run Python versus the new language.
+1. Add a **compact native action grammar** and measure branching-factor/decision-depth tradeoffs against Python.
 2. Expand beyond one-accumulator list reductions.
 3. Learn motor options instead of predefining the `WHEN` family.
 4. Add a GRU baseline with matched state/action access.

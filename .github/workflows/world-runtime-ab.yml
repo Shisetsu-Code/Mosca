@@ -1,9 +1,6 @@
 name: world-runtime-ab
 
 on:
-  push:
-    branches:
-      - exp/mosca-native-world
   workflow_dispatch:
 
 jobs:
