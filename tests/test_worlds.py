@@ -3,6 +3,7 @@ from mosca.fly import FlyConfig, SparseFlyAgent
 from mosca.mcts import mcts_solve
 from mosca.motor_env import MotorMaze, OracleCounter
 from mosca.native_world import NativeWorld
+from mosca.typed_world import TypedWorld
 from mosca.resource import resource_benchmark
 from mosca.tasks import TASKS
 from mosca.worlds import ProgramWorld, create_world, register_world, world_names
@@ -241,3 +242,73 @@ def test_native_world_mcts_matches_python_search_path():
         == native.visible_oracle_calls_at_first_generalizing
     )
     assert python.source != native.source
+
+
+def test_typed_world_is_registered_and_independent():
+    assert "typed" in world_names()
+    world = create_world("typed", TASKS["sum_list"])
+    assert isinstance(world, TypedWorld)
+    assert isinstance(world, NativeWorld)
+
+
+def test_typed_world_reduces_loop_branching_without_extra_depth():
+    python = create_world("python", TASKS["count_positive"])
+    typed = create_world("typed", TASKS["count_positive"])
+
+    python.step("SET:acc=0")
+    python.step("FOR:x:xs")
+    typed.step("SET:acc=0")
+    typed.step("FOR:x:xs")
+
+    assert len(python.valid_actions()) == 21
+    assert len(typed.valid_actions()) == 12
+
+    actions = (
+        "SET:acc=0",
+        "FOR:x:xs",
+        "WHEN:x>0:INC1",
+        "END",
+        "RETURN:acc",
+    )
+    typed = create_world("typed", TASKS["count_positive"])
+    for action in actions:
+        typed.step(action)
+    assert len(actions) == 5
+    assert typed.last_evaluation is not None
+    assert typed.last_evaluation.score == 1.0
+
+
+def test_typed_world_keeps_all_current_reference_semantics():
+    programs = {
+        "sum_list": (
+            "SET:acc=0", "FOR:x:xs", "AUG:acc+=x", "END", "RETURN:acc",
+        ),
+        "count_positive": (
+            "SET:acc=0", "FOR:x:xs", "WHEN:x>0:INC1", "END", "RETURN:acc",
+        ),
+        "max_list": (
+            "SET:acc=xs[0]", "FOR:x:xs", "WHEN:x>acc:SETX", "END", "RETURN:acc",
+        ),
+    }
+    for name, actions in programs.items():
+        world = create_world("typed", TASKS[name])
+        for action in actions:
+            world.step(action)
+        assert world.last_evaluation is not None
+        assert world.last_evaluation.score == 1.0
+        assert world.evaluate_hidden().score == 1.0
+
+
+def test_typed_world_excludes_role_mismatched_conditionals():
+    world = create_world("typed", TASKS["count_positive"])
+    world.step("SET:acc=0")
+    world.step("FOR:x:xs")
+    valid = set(world.valid_actions())
+
+    assert "WHEN:x>0:INC1" in valid
+    assert "WHEN:x<0:ADDX" in valid
+    assert "WHEN:x>acc:SETX" in valid
+
+    assert "WHEN:x>acc:INC1" not in valid
+    assert "WHEN:x>0:SETX" not in valid
+    assert "WHEN:x<acc:ADDX" not in valid

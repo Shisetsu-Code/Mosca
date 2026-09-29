@@ -34,3 +34,5 @@ jobs:
       - run: mosca transfer-suite --pretrain-episodes 10 --adapt-episodes 3 --seeds 0 --source-curriculum expanded
       - run: mosca motor-benchmark --episodes 80 --seed 42 --world mosca
       - run: mosca transfer-suite --pretrain-episodes 12 --adapt-episodes 4 --seeds 0 --world mosca
+      - run: mosca motor-benchmark --episodes 80 --seed 42 --world typed
+      - run: mosca mcts-benchmark --simulations 120 --seed 42 --world typed

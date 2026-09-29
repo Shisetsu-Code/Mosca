@@ -5,6 +5,7 @@ from typing import Protocol, runtime_checkable
 
 from .motor_env import MotorMaze, OracleCounter
 from .native_world import NativeWorld
+from .typed_world import TypedWorld
 from .tasks import Task
 
 
@@ -46,9 +47,18 @@ def _mosca_factory(
     return NativeWorld(task, max_steps=max_steps, counter=counter)
 
 
+def _typed_factory(
+    task: Task,
+    max_steps: int = 8,
+    counter: OracleCounter | None = None,
+) -> ProgramWorld:
+    return TypedWorld(task, max_steps=max_steps, counter=counter)
+
+
 _WORLD_FACTORIES: dict[str, WorldFactory] = {
     "mosca": _mosca_factory,
     "python": _python_factory,
+    "typed": _typed_factory,
 }
 
 
