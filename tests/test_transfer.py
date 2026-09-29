@@ -75,7 +75,7 @@ def test_memory_concepts_compose_source_behaviors():
             "role:identity_zero", "role:list_reduce",
         },
         "min_negative_or_zero": {
-            "agg:min", "filter:negative",
+            "agg:min",
             "role:identity_zero", "role:list_reduce",
         },
     }
@@ -154,3 +154,14 @@ def test_validated_transfer_defaults_are_enabled():
     assert result["role_factor_mix"] == DEFAULT_TRANSFER_ROLE_FACTOR_MIX == 0.30
     assert result["agg_factor_mix"] == DEFAULT_TRANSFER_AGG_FACTOR_MIX == 0.15
     assert result["filter_factor_mix"] == DEFAULT_TRANSFER_FILTER_FACTOR_MIX == 0.0
+
+
+def test_negative_filter_is_used_for_sum_but_not_zero_identity_min():
+    sum_concepts = set(task_memory_concepts(TRANSFER_TASKS["sum_negative"]))
+    min_concepts = set(
+        task_memory_concepts(TRANSFER_TASKS["min_negative_or_zero"])
+    )
+    assert "filter:negative" in sum_concepts
+    assert "filter:negative" not in min_concepts
+    assert "agg:min" in min_concepts
+    assert "role:identity_zero" in min_concepts
