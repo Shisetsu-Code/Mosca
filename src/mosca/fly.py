@@ -355,7 +355,7 @@ class SparseFlyAgent:
             )
 
         for concept in self._active_concepts:
-            if concept.startswith("role:"):
+            if concept.startswith("role:") or concept == "filter:negative":
                 continue
             table = self.concept_weights.get(concept)
             if table:
@@ -374,8 +374,10 @@ class SparseFlyAgent:
                 mix = self.config.role_factor_mix
             elif concept.startswith("agg:"):
                 mix = self.config.agg_factor_mix
-            elif concept.startswith("filter:"):
+            elif concept == "filter:negative":
                 mix = self.config.filter_factor_mix
+            elif concept.startswith("filter:"):
+                mix = 0.0
             else:
                 mix = 0.0
 
@@ -473,10 +475,11 @@ class SparseFlyAgent:
     def _consolidate_concepts(self) -> None:
         rate = self.config.consolidation_rate
 
-        # Established v0.9 broad memory: unchanged, and role concepts are
-        # deliberately excluded so role_mix=0 is behaviorally identical.
+        # Preserve established broad memory except for the negative-filter
+        # concept. Negative filtering is factor-only so it can transfer x < 0
+        # without dragging the source task's update operation with it.
         for concept in self._active_concepts:
-            if concept.startswith("role:"):
+            if concept.startswith("role:") or concept == "filter:negative":
                 continue
             table = self.concept_weights.setdefault(concept, {})
             for model_key, eligibility in self.memory_traces.items():
