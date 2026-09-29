@@ -421,6 +421,7 @@ def transfer_benchmark(
     seed: int = 42,
     target_name: str = "sum_positive",
     source_curriculum: str = "core",
+    world_name: str = "python",
 ) -> dict:
     """Pretrain on core tasks, then adapt to a compositional unseen task."""
 
@@ -434,20 +435,33 @@ def transfer_benchmark(
             pretrained,
             sources[episode % len(sources)],
             counter=pretrain_counter,
+            world_name=world_name,
         )
 
     target_config = _target_config(pretrained.config)
     pretrained.config = target_config
     scratch = SparseFlyAgent(target_config, seed=seed)
-    transfer_zero_shot = _zero_shot_summary(copy.deepcopy(pretrained), target)
-    scratch_zero_shot = _zero_shot_summary(copy.deepcopy(scratch), target)
+    transfer_zero_shot = _zero_shot_summary(
+        copy.deepcopy(pretrained), target, world_name=world_name
+    )
+    scratch_zero_shot = _zero_shot_summary(
+        copy.deepcopy(scratch), target, world_name=world_name
+    )
     transfer_counter = OracleCounter()
     scratch_counter = OracleCounter()
     transfer = _adapt_summary(
-        pretrained, target, adapt_episodes, counter=transfer_counter
+        pretrained,
+        target,
+        adapt_episodes,
+        counter=transfer_counter,
+        world_name=world_name,
     )
     baseline = _adapt_summary(
-        scratch, target, adapt_episodes, counter=scratch_counter
+        scratch,
+        target,
+        adapt_episodes,
+        counter=scratch_counter,
+        world_name=world_name,
     )
     return {
         "seed": seed,
@@ -455,6 +469,7 @@ def transfer_benchmark(
         "adapt_episodes": adapt_episodes,
         "target": target.name,
         "source_curriculum": source_curriculum,
+        "world": world_name,
         "pretrain_oracle": pretrain_counter.snapshot(),
         "transfer_zero_shot": transfer_zero_shot,
         "scratch_zero_shot": scratch_zero_shot,
@@ -470,6 +485,7 @@ def transfer_multiseed(
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
     target_name: str = "sum_positive",
     source_curriculum: str = "core",
+    world_name: str = "python",
 ) -> dict:
     runs = [
         transfer_benchmark(
@@ -478,6 +494,7 @@ def transfer_multiseed(
             seed,
             target_name,
             source_curriculum,
+            world_name,
         )
         for seed in seeds
     ]
@@ -546,6 +563,7 @@ def transfer_multiseed(
     return {
         "target": target_name,
         "source_curriculum": source_curriculum,
+        "world": world_name,
         "pretrain_episodes": pretrain_episodes,
         "adapt_episodes": adapt_episodes,
         "seeds": list(seeds),
@@ -563,9 +581,12 @@ def transfer_multiseed(
 
 
 
-def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 1) -> dict:
-    from .motor_env import MotorMaze
-
+def _zero_shot_summary(
+    agent: SparseFlyAgent,
+    task: Task,
+    episodes: int = 1,
+    world_name: str = "python",
+) -> dict:
     counter = OracleCounter()
     solved = 0
     generalized = 0
@@ -573,7 +594,12 @@ def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 1) -> 
     best_hidden = 0.0
     examples: list[str] = []
     for _ in range(episodes):
-        env = MotorMaze(task, max_steps=8, counter=counter)
+        env = create_world(
+            world_name,
+            task,
+            max_steps=8,
+            counter=counter,
+        )
         agent.begin_episode()
         observation = env.observe()
         while not env.done:
@@ -600,6 +626,7 @@ def _zero_shot_summary(agent: SparseFlyAgent, task: Task, episodes: int = 1) -> 
         "best_hidden_score": best_hidden,
         "example_sources": examples,
         "oracle": counter.snapshot(),
+        "world": world_name,
     }
 
 
@@ -612,6 +639,7 @@ def transfer_suite(
     agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
     filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
     source_curriculum: str = "core",
+    world_name: str = "python",
 ) -> dict:
     """Pretrain once per seed, then test several held-out compositions."""
 
@@ -626,10 +654,12 @@ def transfer_suite(
                 pretrained,
                 sources[episode % len(sources)],
                 counter=pretrain_counter,
+                world_name=world_name,
             )
 
         seed_result = {
             "seed": seed,
+            "world": world_name,
             "pretrain_oracle": pretrain_counter.snapshot(),
             "targets": {},
         }
@@ -645,10 +675,14 @@ def transfer_suite(
             transfer_agent.config = target_config
             scratch_agent = SparseFlyAgent(target_config, seed=seed)
             transfer_zero = _zero_shot_summary(
-                copy.deepcopy(transfer_agent), target
+                copy.deepcopy(transfer_agent),
+                target,
+                world_name=world_name,
             )
             scratch_zero = _zero_shot_summary(
-                copy.deepcopy(scratch_agent), target
+                copy.deepcopy(scratch_agent),
+                target,
+                world_name=world_name,
             )
             transfer_counter = OracleCounter()
             scratch_counter = OracleCounter()
@@ -657,12 +691,14 @@ def transfer_suite(
                 target,
                 adapt_episodes,
                 counter=transfer_counter,
+                world_name=world_name,
             )
             scratch = _adapt_summary(
                 scratch_agent,
                 target,
                 adapt_episodes,
                 counter=scratch_counter,
+                world_name=world_name,
             )
             seed_result["targets"][target_name] = {
                 "transfer_zero_shot": transfer_zero,
@@ -747,6 +783,7 @@ def transfer_suite(
         "agg_factor_mix": agg_factor_mix,
         "filter_factor_mix": filter_factor_mix,
         "source_curriculum": source_curriculum,
+        "world": world_name,
         "seeds": list(seeds),
         "targets": list(TRANSFER_TASKS),
         "summary": summary,
