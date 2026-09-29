@@ -11,6 +11,7 @@ from .benchmark import (
     benchmark_json,
     motor_benchmark,
     motor_multiseed,
+    cross_world_transfer_suite,
     transfer_benchmark,
     transfer_multiseed,
     transfer_suite,
@@ -96,6 +97,21 @@ def main() -> None:
     transfer.add_argument("--target", choices=sorted(TRANSFER_TASKS), default="sum_positive")
     transfer.add_argument("--source-curriculum", choices=("core", "expanded"), default="core")
     transfer.add_argument("--world", choices=world_names(), default="python")
+
+    cross = sub.add_parser(
+        "cross-world-transfer",
+        help="pretrain in one ProgramWorld and adapt in another",
+    )
+    cross.add_argument("--pretrain-episodes", type=int, default=600)
+    cross.add_argument("--adapt-episodes", type=int, default=250)
+    cross.add_argument("--seeds", default="0,1,2,3,4")
+    cross.add_argument("--source-world", choices=world_names(), required=True)
+    cross.add_argument("--target-world", choices=world_names(), required=True)
+    cross.add_argument(
+        "--source-curriculum",
+        choices=("core", "expanded"),
+        default="core",
+    )
 
     transfer_multi = sub.add_parser("transfer-multiseed", help="repeat compositional transfer across seeds")
     transfer_multi.add_argument("--pretrain-episodes", type=int, default=600)
@@ -206,6 +222,23 @@ def main() -> None:
                 args.target,
                 args.source_curriculum,
                 args.world,
+            ),
+            indent=2,
+            sort_keys=True,
+        ))
+        return
+    if args.command == "cross-world-transfer":
+        seeds = tuple(
+            int(x) for x in args.seeds.split(",") if x.strip()
+        )
+        print(json.dumps(
+            cross_world_transfer_suite(
+                args.pretrain_episodes,
+                args.adapt_episodes,
+                seeds,
+                args.source_world,
+                args.target_world,
+                args.source_curriculum,
             ),
             indent=2,
             sort_keys=True,

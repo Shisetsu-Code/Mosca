@@ -1,0 +1,29 @@
+name: cross-world-transfer
+
+on:
+  push:
+    branches:
+      - exp/cross-world-transfer
+  workflow_dispatch:
+
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        source_world: [python, typed]
+        target_world: [python, typed]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - run: python -m pip install -e .[dev]
+      - run: >-
+          mosca cross-world-transfer
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --seeds 0,1,2,3,4
+          --source-world ${{ matrix.source_world }}
+          --target-world ${{ matrix.target_world }}

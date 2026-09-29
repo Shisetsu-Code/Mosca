@@ -1,4 +1,8 @@
-from mosca.benchmark import _learn_motor_episode, transfer_benchmark
+from mosca.benchmark import (
+    _learn_motor_episode,
+    cross_world_transfer_suite,
+    transfer_benchmark,
+)
 from mosca.fly import FlyConfig, SparseFlyAgent
 from mosca.mcts import mcts_solve
 from mosca.motor_env import MotorMaze, OracleCounter
@@ -312,3 +316,36 @@ def test_typed_world_excludes_role_mismatched_conditionals():
     assert "WHEN:x>acc:INC1" not in valid
     assert "WHEN:x>0:SETX" not in valid
     assert "WHEN:x<acc:ADDX" not in valid
+
+
+def test_cross_world_transfer_reports_source_and_target_worlds():
+    result = cross_world_transfer_suite(
+        pretrain_episodes=6,
+        adapt_episodes=3,
+        seeds=(0,),
+        source_world="python",
+        target_world="typed",
+    )
+    assert result["source_world"] == "python"
+    assert result["target_world"] == "typed"
+    assert set(result["summary"])
+
+
+def test_cross_world_same_world_matches_transfer_semantics_smoke():
+    direct = transfer_benchmark(
+        pretrain_episodes=6,
+        adapt_episodes=3,
+        seed=4,
+        target_name="sum_positive",
+        world_name="typed",
+    )
+    cross = cross_world_transfer_suite(
+        pretrain_episodes=6,
+        adapt_episodes=3,
+        seeds=(4,),
+        source_world="typed",
+        target_world="typed",
+    )
+    target = cross["runs"][0]["targets"]["sum_positive"]
+    assert direct["transfer"]["first_generalized"] == target["transfer"]["first_generalized"]
+    assert direct["transfer"]["generalized"] == target["transfer"]["generalized"]
