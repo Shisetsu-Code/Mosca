@@ -171,3 +171,60 @@ def test_factor_channels_are_gated_independently():
     assert config.filter_factor_mix == 0.20
     assert concept_accepts_factor("agg:count", "effect_rhs:1")
     assert concept_accepts_factor("filter:all", "control:unconditional")
+
+
+def test_negative_filter_is_factor_only_but_positive_filter_stays_broad():
+    import numpy as np
+
+    agent = SparseFlyAgent(
+        FlyConfig(consolidation_rate=1.0),
+        seed=30,
+    )
+    agent._active_concepts = ("filter:negative", "filter:positive")
+    trace = np.zeros(agent.config.expansion_width, dtype=np.float64)
+    trace[5] = 1.0
+    agent.memory_traces = {
+        "control:conditional": trace.copy(),
+        "effect:add": trace.copy(),
+        "effect_rhs:1": trace.copy(),
+    }
+    agent.factor_memory_traces = {
+        "control:conditional": trace.copy(),
+        "lhs:x": trace.copy(),
+        "cmp:<": trace.copy(),
+        "cond_rhs:0": trace.copy(),
+    }
+
+    agent._consolidate_concepts()
+
+    assert "filter:negative" not in agent.concept_weights
+    assert "filter:negative" in agent.factor_concept_weights
+    assert "filter:positive" in agent.concept_weights
+
+
+def test_negative_filter_factor_gate_does_not_apply_to_positive_filter():
+    agent = SparseFlyAgent(
+        FlyConfig(
+            slow_mix=1.0,
+            filter_factor_mix=1.0,
+        ),
+        seed=31,
+    )
+    env = MotorMaze(TRANSFER_TASKS["sum_positive"])
+    obs = env.observe()
+    features = agent.features(obs)
+    memory = agent.memory_features(obs)
+    action = "WHEN:x>0:ADDX"
+
+    agent._active_context = "none"
+    agent._active_concepts = ("filter:positive",)
+    agent.factor_concept_weights["filter:positive"] = {
+        "control:conditional": {memory[0]: 1000.0},
+        "lhs:x": {memory[0]: 1000.0},
+        "cmp:>": {memory[0]: 1000.0},
+        "cond_rhs:0": {memory[0]: 1000.0},
+    }
+
+    # No broad positive-filter table is present in this synthetic setup, so
+    # filter_factor_mix must not add any score here.
+    assert agent.q(action, features, memory) == agent.q_fast(action, features)
