@@ -4,8 +4,9 @@ import math
 import random
 from dataclasses import asdict, dataclass
 
-from .motor_env import MotorMaze, OracleCounter
+from .motor_env import OracleCounter
 from .tasks import TASKS, TRANSFER_TASKS, Task
+from .worlds import ProgramWorld, create_world
 
 
 @dataclass(frozen=True)
@@ -31,8 +32,14 @@ def replay(
     actions: tuple[str, ...],
     max_steps: int = 8,
     counter: OracleCounter | None = None,
-) -> MotorMaze:
-    env = MotorMaze(task, max_steps=max_steps, counter=counter)
+    world_name: str = "python",
+) -> ProgramWorld:
+    env = create_world(
+        world_name,
+        task,
+        max_steps=max_steps,
+        counter=counter,
+    )
     for action in actions:
         if env.done:
             break
@@ -42,7 +49,7 @@ def replay(
     return env
 
 
-def _visible_score(env: MotorMaze) -> float:
+def _visible_score(env: ProgramWorld) -> float:
     if env.last_evaluation is not None:
         return env.last_evaluation.score
     return env.probe_score()
@@ -55,6 +62,7 @@ def mcts_solve(
     max_steps: int = 8,
     exploration: float = 1.4,
     stop_on_generalizing: bool = False,
+    world_name: str = "python",
 ) -> MCTSResult:
     """UCT search over the same semantic action space used by SparseFlyAgent.
 
@@ -80,7 +88,13 @@ def mcts_solve(
         executed_simulations = simulation
         prefix: tuple[str, ...] = ()
         path = [prefix]
-        env = replay(task, prefix, max_steps=max_steps, counter=counter)
+        env = replay(
+            task,
+            prefix,
+            max_steps=max_steps,
+            counter=counter,
+            world_name=world_name,
+        )
 
         # Selection + one-node expansion.
         while not env.done:
@@ -99,7 +113,13 @@ def mcts_solve(
                 path.append(prefix)
                 visits.setdefault(prefix, 0)
                 values.setdefault(prefix, 0.0)
-                env = replay(task, prefix, max_steps=max_steps, counter=counter)
+                env = replay(
+            task,
+            prefix,
+            max_steps=max_steps,
+            counter=counter,
+            world_name=world_name,
+        )
                 break
 
             parent_visits = max(1, visits.get(prefix, 0))
@@ -118,7 +138,13 @@ def mcts_solve(
             path.append(prefix)
             visits.setdefault(prefix, 0)
             values.setdefault(prefix, 0.0)
-            env = replay(task, prefix, max_steps=max_steps, counter=counter)
+            env = replay(
+            task,
+            prefix,
+            max_steps=max_steps,
+            counter=counter,
+            world_name=world_name,
+        )
 
         # Random rollout from the expanded/selected state.
         rollout = prefix
@@ -186,15 +212,25 @@ def mcts_solve(
     )
 
 
-def mcts_benchmark(simulations: int = 500, seed: int = 42) -> dict:
+def mcts_benchmark(
+    simulations: int = 500,
+    seed: int = 42,
+    world_name: str = "python",
+) -> dict:
     tasks = {**TASKS, **TRANSFER_TASKS}
     results = {}
     for offset, (name, task) in enumerate(tasks.items()):
-        result = mcts_solve(task, simulations=simulations, seed=seed + offset)
+        result = mcts_solve(
+            task,
+            simulations=simulations,
+            seed=seed + offset,
+            world_name=world_name,
+        )
         results[name] = asdict(result)
     return {
         "simulations_budget": simulations,
         "seed": seed,
+        "world": world_name,
         "tasks": results,
     }
 
@@ -203,13 +239,19 @@ def mcts_benchmark(simulations: int = 500, seed: int = 42) -> dict:
 def mcts_multiseed(
     simulations: int = 500,
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
+    world_name: str = "python",
 ) -> dict:
     tasks = {**TASKS, **TRANSFER_TASKS}
     per_task: dict[str, dict] = {}
 
     for task_index, (name, task) in enumerate(tasks.items()):
         results = [
-            mcts_solve(task, simulations=simulations, seed=seed + task_index)
+            mcts_solve(
+                task,
+                simulations=simulations,
+                seed=seed + task_index,
+                world_name=world_name,
+            )
             for seed in seeds
         ]
         solved = [r.first_generalizing_at for r in results if r.first_generalizing_at is not None]
@@ -237,5 +279,6 @@ def mcts_multiseed(
     return {
         "simulations_budget": simulations,
         "seeds": list(seeds),
+        "world": world_name,
         "tasks": per_task,
     }
