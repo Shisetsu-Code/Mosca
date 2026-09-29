@@ -9,6 +9,7 @@ from .ast_env import ASTMaze
 from .fly import FlyConfig, SparseFlyAgent
 from .motor_env import OracleCounter
 from .tasks import SOURCE_TASKS, TASKS, TRANSFER_TASKS, Task
+from .worlds import create_world
 
 
 DEFAULT_TRANSFER_ROLE_FACTOR_MIX = 0.30
@@ -117,10 +118,13 @@ def benchmark_json(episodes: int = 200, seed: int = 0) -> str:
     return json.dumps(benchmark(episodes, seed), indent=2, sort_keys=True)
 
 
-def _episode_random_motor(task: Task, rng: random.Random, max_steps: int = 8):
-    from .motor_env import MotorMaze
-
-    env = MotorMaze(task, max_steps=max_steps)
+def _episode_random_motor(
+    task: Task,
+    rng: random.Random,
+    max_steps: int = 8,
+    world_name: str = "python",
+):
+    env = create_world(world_name, task, max_steps=max_steps)
     while not env.done:
         actions = env.valid_actions()
         if not actions:
@@ -130,7 +134,13 @@ def _episode_random_motor(task: Task, rng: random.Random, max_steps: int = 8):
     return score, env
 
 
-def random_motor_baseline(task: Task, episodes: int = 300, seed: int = 0, max_steps: int = 8) -> dict:
+def random_motor_baseline(
+    task: Task,
+    episodes: int = 300,
+    seed: int = 0,
+    max_steps: int = 8,
+    world_name: str = "python",
+) -> dict:
     rng = random.Random(seed)
     solved = 0
     first = None
@@ -142,7 +152,9 @@ def random_motor_baseline(task: Task, episodes: int = 300, seed: int = 0, max_st
     first_generalized = None
     shortest_hidden_score = None
     for episode in range(1, episodes + 1):
-        score, env = _episode_random_motor(task, rng, max_steps)
+        score, env = _episode_random_motor(
+            task, rng, max_steps, world_name
+        )
         scores.append(score)
         best = max(best, score)
         if score == 1.0:
@@ -168,11 +180,17 @@ def random_motor_baseline(task: Task, episodes: int = 300, seed: int = 0, max_st
         "shortest_solution_hidden_score": shortest_hidden_score,
         "generalized": generalized,
         "first_generalized": first_generalized,
+        "world": world_name,
     }
 
 
-def train_motor_fly(task: Task, episodes: int = 300, seed: int = 0, max_steps: int = 8) -> dict:
-    from .motor_env import MotorMaze
+def train_motor_fly(
+    task: Task,
+    episodes: int = 300,
+    seed: int = 0,
+    max_steps: int = 8,
+    world_name: str = "python",
+) -> dict:
 
     config = FlyConfig(
         epsilon=0.30,
@@ -193,7 +211,7 @@ def train_motor_fly(task: Task, episodes: int = 300, seed: int = 0, max_steps: i
     shortest_hidden_score = None
 
     for episode in range(1, episodes + 1):
-        env = MotorMaze(task, max_steps=max_steps)
+        env = create_world(world_name, task, max_steps=max_steps)
         agent.begin_episode()
         observation = env.observe()
         while not env.done:
@@ -233,16 +251,36 @@ def train_motor_fly(task: Task, episodes: int = 300, seed: int = 0, max_steps: i
         "shortest_solution_hidden_score": shortest_hidden_score,
         "generalized": generalized,
         "first_generalized": first_generalized,
+        "world": world_name,
     }
 
 
-def motor_benchmark(episodes: int = 300, seed: int = 42) -> dict:
-    result = {"episodes": episodes, "seed": seed, "tasks": {}}
+def motor_benchmark(
+    episodes: int = 300,
+    seed: int = 42,
+    world_name: str = "python",
+) -> dict:
+    result = {
+        "episodes": episodes,
+        "seed": seed,
+        "world": world_name,
+        "tasks": {},
+    }
     for offset, (name, task) in enumerate(TASKS.items()):
         task_seed = seed + offset
         result["tasks"][name] = {
-            "random": random_motor_baseline(task, episodes=episodes, seed=task_seed),
-            "fly": train_motor_fly(task, episodes=episodes, seed=task_seed),
+            "random": random_motor_baseline(
+                task,
+                episodes=episodes,
+                seed=task_seed,
+                world_name=world_name,
+            ),
+            "fly": train_motor_fly(
+                task,
+                episodes=episodes,
+                seed=task_seed,
+                world_name=world_name,
+            ),
         }
     return result
 
@@ -273,10 +311,14 @@ def _learn_motor_episode(
     task: Task,
     max_steps: int = 8,
     counter: OracleCounter | None = None,
+    world_name: str = "python",
 ) -> tuple[float, float]:
-    from .motor_env import MotorMaze
-
-    env = MotorMaze(task, max_steps=max_steps, counter=counter)
+    env = create_world(
+        world_name,
+        task,
+        max_steps=max_steps,
+        counter=counter,
+    )
     agent.begin_episode()
     observation = env.observe()
     while not env.done:
@@ -292,10 +334,18 @@ def _learn_motor_episode(
     return train_score, hidden_score
 
 
-def motor_multiseed(episodes: int = 200, seeds: tuple[int, ...] = (0, 1, 2)) -> dict:
+def motor_multiseed(
+    episodes: int = 200,
+    seeds: tuple[int, ...] = (0, 1, 2),
+    world_name: str = "python",
+) -> dict:
     runs = []
     for seed in seeds:
-        result = motor_benchmark(episodes=episodes, seed=seed)
+        result = motor_benchmark(
+            episodes=episodes,
+            seed=seed,
+            world_name=world_name,
+        )
         runs.append(result)
 
     summary: dict[str, dict] = {}
@@ -318,7 +368,13 @@ def motor_multiseed(episodes: int = 200, seeds: tuple[int, ...] = (0, 1, 2)) -> 
             "fly_mean_first_generalized": (sum(fly_first) / len(fly_first)) if fly_first else None,
             "random_mean_first_generalized": (sum(random_first) / len(random_first)) if random_first else None,
         }
-    return {"episodes": episodes, "seeds": list(seeds), "summary": summary, "runs": runs}
+    return {
+        "episodes": episodes,
+        "seeds": list(seeds),
+        "world": world_name,
+        "summary": summary,
+        "runs": runs,
+    }
 
 
 def _adapt_summary(
@@ -326,6 +382,7 @@ def _adapt_summary(
     task: Task,
     episodes: int,
     counter: OracleCounter | None = None,
+    world_name: str = "python",
 ) -> dict:
     counter = counter if counter is not None else OracleCounter()
     first_generalized = None
@@ -333,7 +390,12 @@ def _adapt_summary(
     generalized = 0
     solved = 0
     for episode in range(1, episodes + 1):
-        train_score, hidden_score = _learn_motor_episode(agent, task, counter=counter)
+        train_score, hidden_score = _learn_motor_episode(
+            agent,
+            task,
+            counter=counter,
+            world_name=world_name,
+        )
         if train_score == 1.0:
             solved += 1
         if hidden_score == 1.0:
@@ -349,6 +411,7 @@ def _adapt_summary(
         "parameters": agent.parameter_count(),
         "oracle": counter.snapshot(),
         "oracle_at_first_generalized": first_generalized_oracle,
+        "world": world_name,
     }
 
 
