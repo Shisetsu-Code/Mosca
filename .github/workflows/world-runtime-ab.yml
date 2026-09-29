@@ -1,0 +1,30 @@
+name: world-runtime-ab
+
+on:
+  push:
+    branches:
+      - exp/mosca-native-world
+  workflow_dispatch:
+
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        world: [python, mosca]
+        seed: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - run: python -m pip install -e .[dev]
+      - run: >-
+          mosca resource-benchmark
+          --seed ${{ matrix.seed }}
+          --pretrain-episodes 600
+          --adapt-episodes 250
+          --mcts-simulations 500
+          --random-episodes 500
+          --world ${{ matrix.world }}
