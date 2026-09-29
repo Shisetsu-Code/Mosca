@@ -2,6 +2,7 @@ from mosca.benchmark import _learn_motor_episode, transfer_benchmark
 from mosca.fly import FlyConfig, SparseFlyAgent
 from mosca.mcts import mcts_solve
 from mosca.motor_env import MotorMaze, OracleCounter
+from mosca.native_world import NativeWorld
 from mosca.resource import resource_benchmark
 from mosca.tasks import TASKS
 from mosca.worlds import ProgramWorld, create_world, register_world, world_names
@@ -114,3 +115,129 @@ def test_resource_benchmark_accepts_registered_world():
     assert result["world"] == "testlang"
     assert result["transfer"]["world"] == "testlang"
     assert result["mcts"]["resources"]["cpu_seconds"] >= 0
+
+
+def test_native_mosca_world_is_registered_and_independent():
+    assert "mosca" in world_names()
+    world = create_world("mosca", TASKS["sum_list"])
+    assert isinstance(world, ProgramWorld)
+    assert isinstance(world, NativeWorld)
+    assert not isinstance(world, MotorMaze)
+
+
+def _step_pair(task_name: str, actions: tuple[str, ...]):
+    python = create_world("python", TASKS[task_name])
+    native = create_world("mosca", TASKS[task_name])
+    for action in actions:
+        assert python.observe() == native.observe()
+        assert python.valid_actions() == native.valid_actions()
+        p_obs, p_reward, p_done, p_info = python.step(action)
+        n_obs, n_reward, n_done, n_info = native.step(action)
+        assert p_obs == n_obs
+        assert abs(p_reward - n_reward) < 1e-12
+        assert p_done == n_done
+        assert p_info.get("probe_before") == n_info.get("probe_before")
+        assert p_info.get("probe_after") == n_info.get("probe_after")
+    return python, native
+
+
+def test_native_world_matches_reference_program_semantics():
+    programs = {
+        "sum_list": (
+            "SET:acc=0", "FOR:x:xs", "AUG:acc+=x", "END", "RETURN:acc",
+        ),
+        "count_positive": (
+            "SET:acc=0", "FOR:x:xs", "WHEN:x>0:INC1", "END", "RETURN:acc",
+        ),
+        "max_list": (
+            "SET:acc=xs[0]", "FOR:x:xs", "WHEN:x>acc:SETX", "END", "RETURN:acc",
+        ),
+    }
+    for task_name, actions in programs.items():
+        python, native = _step_pair(task_name, actions)
+        assert python.last_evaluation is not None
+        assert native.last_evaluation is not None
+        assert python.last_evaluation.score == native.last_evaluation.score == 1.0
+        assert python.evaluate_hidden().score == native.evaluate_hidden().score == 1.0
+        assert python.counter.snapshot() == native.counter.snapshot()
+
+
+def test_native_world_matches_random_valid_trajectories():
+    import random
+
+    for task_name in ("sum_list", "count_positive", "max_list"):
+        for seed in range(8):
+            rng = random.Random(seed)
+            python = create_world("python", TASKS[task_name])
+            native = create_world("mosca", TASKS[task_name])
+            while not python.done and len(python.actions) < 8:
+                assert python.observe() == native.observe()
+                valid = python.valid_actions()
+                assert valid == native.valid_actions()
+                if not valid:
+                    break
+                action = rng.choice(valid)
+                p_obs, p_reward, p_done, _ = python.step(action)
+                n_obs, n_reward, n_done, _ = native.step(action)
+                assert p_obs == n_obs
+                assert abs(p_reward - n_reward) < 1e-12
+                assert p_done == n_done
+            if python.last_evaluation is not None:
+                assert native.last_evaluation is not None
+                assert python.last_evaluation.score == native.last_evaluation.score
+            assert python.counter.snapshot() == native.counter.snapshot()
+
+
+def test_native_world_learning_episode_matches_python():
+    config = FlyConfig(
+        epsilon=0.30,
+        alpha=0.065,
+        gamma=0.98,
+        trace_decay=0.93,
+        history=8,
+    )
+    python_agent = SparseFlyAgent(config, seed=73)
+    native_agent = SparseFlyAgent(config, seed=73)
+    python_counter = OracleCounter()
+    native_counter = OracleCounter()
+
+    python_result = _learn_motor_episode(
+        python_agent,
+        TASKS["count_positive"],
+        counter=python_counter,
+        world_name="python",
+    )
+    native_result = _learn_motor_episode(
+        native_agent,
+        TASKS["count_positive"],
+        counter=native_counter,
+        world_name="mosca",
+    )
+    assert python_result == native_result
+    assert python_counter.snapshot() == native_counter.snapshot()
+    assert python_agent.parameter_count() == native_agent.parameter_count()
+
+
+def test_native_world_mcts_matches_python_search_path():
+    python = mcts_solve(
+        TASKS["sum_list"],
+        simulations=80,
+        seed=31,
+        world_name="python",
+    )
+    native = mcts_solve(
+        TASKS["sum_list"],
+        simulations=80,
+        seed=31,
+        world_name="mosca",
+    )
+    assert python.first_visible_at == native.first_visible_at
+    assert python.first_generalizing_at == native.first_generalizing_at
+    assert python.best_train_score == native.best_train_score
+    assert python.best_hidden_score == native.best_hidden_score
+    assert python.actions == native.actions
+    assert (
+        python.visible_oracle_calls_at_first_generalizing
+        == native.visible_oracle_calls_at_first_generalizing
+    )
+    assert python.source != native.source

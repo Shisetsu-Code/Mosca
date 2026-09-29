@@ -16,6 +16,7 @@ jobs:
       - run: pytest -q
       - run: mosca runtime
       - run: mosca rules
+      - run: mosca worlds
       - run: mosca ast-reference all
       - run: mosca solve sum_list --depth 7
       - run: mosca solve count_positive --depth 9
@@ -31,3 +32,5 @@ jobs:
       - run: mosca mcts-benchmark --simulations 500 --seed 42
       - run: mosca mcts-multiseed --simulations 500 --seeds 0,1,2,3,4
       - run: mosca transfer-suite --pretrain-episodes 10 --adapt-episodes 3 --seeds 0 --source-curriculum expanded
+      - run: mosca motor-benchmark --episodes 80 --seed 42 --world mosca
+      - run: mosca transfer-suite --pretrain-episodes 12 --adapt-episodes 4 --seeds 0 --world mosca

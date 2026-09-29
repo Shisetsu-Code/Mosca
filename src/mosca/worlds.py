@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from .motor_env import MotorMaze, OracleCounter
+from .native_world import NativeWorld
 from .tasks import Task
 
 
@@ -37,7 +38,16 @@ def _python_factory(
     return MotorMaze(task, max_steps=max_steps, counter=counter)
 
 
+def _mosca_factory(
+    task: Task,
+    max_steps: int = 8,
+    counter: OracleCounter | None = None,
+) -> ProgramWorld:
+    return NativeWorld(task, max_steps=max_steps, counter=counter)
+
+
 _WORLD_FACTORIES: dict[str, WorldFactory] = {
+    "mosca": _mosca_factory,
     "python": _python_factory,
 }
 
