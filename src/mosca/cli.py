@@ -23,6 +23,7 @@ from .motor_env import MotorMaze
 from .mcts import mcts_benchmark, mcts_multiseed
 from .search import bfs_solve
 from .tasks import TASKS, TRANSFER_TASKS
+from .worlds import world_names
 
 
 def _run_reference(name: str) -> dict:
@@ -60,6 +61,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("runtime")
     sub.add_parser("rules")
+    sub.add_parser("worlds", help="list registered programming worlds")
 
     solve = sub.add_parser("solve", help="legacy hand-shaped maze baseline")
     solve.add_argument("task", choices=sorted(TASKS))
@@ -80,10 +82,12 @@ def main() -> None:
     motor_bench.add_argument("--seed", type=int, default=42)
     motor_bench.add_argument("--require-fly-solved", action="store_true")
     motor_bench.add_argument("--require-fly-generalized", action="store_true")
+    motor_bench.add_argument("--world", choices=world_names(), default="python")
 
     multi = sub.add_parser("motor-multiseed", help="repeat motor benchmark across deterministic seeds")
     multi.add_argument("--episodes", type=int, default=200)
     multi.add_argument("--seeds", default="0,1,2")
+    multi.add_argument("--world", choices=world_names(), default="python")
 
     transfer = sub.add_parser("transfer-benchmark", help="pretrain on core tasks then adapt to an unseen composition")
     transfer.add_argument("--pretrain-episodes", type=int, default=300)
@@ -91,6 +95,7 @@ def main() -> None:
     transfer.add_argument("--seed", type=int, default=42)
     transfer.add_argument("--target", choices=sorted(TRANSFER_TASKS), default="sum_positive")
     transfer.add_argument("--source-curriculum", choices=("core", "expanded"), default="core")
+    transfer.add_argument("--world", choices=world_names(), default="python")
 
     transfer_multi = sub.add_parser("transfer-multiseed", help="repeat compositional transfer across seeds")
     transfer_multi.add_argument("--pretrain-episodes", type=int, default=600)
@@ -98,6 +103,7 @@ def main() -> None:
     transfer_multi.add_argument("--seeds", default="0,1,2,3,4")
     transfer_multi.add_argument("--target", choices=sorted(TRANSFER_TASKS), default="sum_positive")
     transfer_multi.add_argument("--source-curriculum", choices=("core", "expanded"), default="core")
+    transfer_multi.add_argument("--world", choices=world_names(), default="python")
 
     suite = sub.add_parser("transfer-suite", help="pretrain once and test all held-out compositions")
     suite.add_argument("--pretrain-episodes", type=int, default=600)
@@ -119,14 +125,17 @@ def main() -> None:
         type=float,
         default=DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
     )
+    suite.add_argument("--world", choices=world_names(), default="python")
 
     mcts = sub.add_parser("mcts-benchmark", help="UCT baseline over the same MotorMaze")
     mcts.add_argument("--simulations", type=int, default=500)
     mcts.add_argument("--seed", type=int, default=42)
+    mcts.add_argument("--world", choices=world_names(), default="python")
 
     mcts_multi = sub.add_parser("mcts-multiseed", help="repeat UCT baseline across deterministic seeds")
     mcts_multi.add_argument("--simulations", type=int, default=500)
     mcts_multi.add_argument("--seeds", default="0,1,2,3,4")
+    mcts_multi.add_argument("--world", choices=world_names(), default="python")
 
     resources = sub.add_parser("resource-benchmark", help="profile cost to first hidden-generalizing solution")
     resources.add_argument("--seed", type=int, default=0)
@@ -134,6 +143,7 @@ def main() -> None:
     resources.add_argument("--adapt-episodes", type=int, default=250)
     resources.add_argument("--mcts-simulations", type=int, default=500)
     resources.add_argument("--random-episodes", type=int, default=500)
+    resources.add_argument("--world", choices=world_names(), default="python")
 
     args = parser.parse_args()
 
@@ -142,6 +152,9 @@ def main() -> None:
         return
     if args.command == "rules":
         print(json.dumps(rule_manifest(), indent=2, sort_keys=True))
+        return
+    if args.command == "worlds":
+        print(json.dumps({"worlds": world_names()}, indent=2))
         return
     if args.command == "ast-reference":
         names = sorted(TASKS) if args.task == "all" else [args.task]
@@ -155,7 +168,11 @@ def main() -> None:
         print(json.dumps([_run_motor_reference(name) for name in names], indent=2))
         return
     if args.command == "motor-benchmark":
-        result = motor_benchmark(args.episodes, args.seed)
+        result = motor_benchmark(
+            args.episodes,
+            args.seed,
+            args.world,
+        )
         print(json.dumps(result, indent=2, sort_keys=True))
         if args.require_fly_solved:
             missing = [
@@ -174,7 +191,11 @@ def main() -> None:
         return
     if args.command == "motor-multiseed":
         seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
-        print(json.dumps(motor_multiseed(args.episodes, seeds), indent=2, sort_keys=True))
+        print(json.dumps(
+            motor_multiseed(args.episodes, seeds, args.world),
+            indent=2,
+            sort_keys=True,
+        ))
         return
     if args.command == "transfer-benchmark":
         print(json.dumps(
@@ -184,6 +205,7 @@ def main() -> None:
                 args.seed,
                 args.target,
                 args.source_curriculum,
+                args.world,
             ),
             indent=2,
             sort_keys=True,
@@ -198,6 +220,7 @@ def main() -> None:
                 seeds,
                 args.target,
                 args.source_curriculum,
+                args.world,
             ),
             indent=2,
             sort_keys=True,
@@ -214,17 +237,26 @@ def main() -> None:
                 args.agg_factor_mix,
                 args.filter_factor_mix,
                 args.source_curriculum,
+                args.world,
             ),
             indent=2,
             sort_keys=True,
         ))
         return
     if args.command == "mcts-benchmark":
-        print(json.dumps(mcts_benchmark(args.simulations, args.seed), indent=2, sort_keys=True))
+        print(json.dumps(
+            mcts_benchmark(args.simulations, args.seed, args.world),
+            indent=2,
+            sort_keys=True,
+        ))
         return
     if args.command == "mcts-multiseed":
         seeds = tuple(int(x) for x in args.seeds.split(",") if x.strip())
-        print(json.dumps(mcts_multiseed(args.simulations, seeds), indent=2, sort_keys=True))
+        print(json.dumps(
+            mcts_multiseed(args.simulations, seeds, args.world),
+            indent=2,
+            sort_keys=True,
+        ))
         return
     if args.command == "resource-benchmark":
         print(json.dumps(resource_benchmark(
@@ -233,6 +265,7 @@ def main() -> None:
             adapt_episodes=args.adapt_episodes,
             mcts_simulations=args.mcts_simulations,
             random_episodes=args.random_episodes,
+            world_name=args.world,
         ), indent=2, sort_keys=True))
         return
 
