@@ -1,3 +1,3 @@
 """Mosca: program synthesis as navigation through a constrained Python state space."""
 
-__version__ = "0.10.0"
+__version__ = "0.11.0"

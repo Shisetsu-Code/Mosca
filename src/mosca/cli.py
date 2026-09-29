@@ -90,20 +90,20 @@ def main() -> None:
     transfer.add_argument("--adapt-episodes", type=int, default=200)
     transfer.add_argument("--seed", type=int, default=42)
     transfer.add_argument("--target", choices=sorted(TRANSFER_TASKS), default="sum_positive")
-    transfer.add_argument("--source-curriculum", choices=("core", "expanded"), default="expanded")
+    transfer.add_argument("--source-curriculum", choices=("core", "expanded"), default="core")
 
     transfer_multi = sub.add_parser("transfer-multiseed", help="repeat compositional transfer across seeds")
     transfer_multi.add_argument("--pretrain-episodes", type=int, default=600)
     transfer_multi.add_argument("--adapt-episodes", type=int, default=250)
     transfer_multi.add_argument("--seeds", default="0,1,2,3,4")
     transfer_multi.add_argument("--target", choices=sorted(TRANSFER_TASKS), default="sum_positive")
-    transfer_multi.add_argument("--source-curriculum", choices=("core", "expanded"), default="expanded")
+    transfer_multi.add_argument("--source-curriculum", choices=("core", "expanded"), default="core")
 
     suite = sub.add_parser("transfer-suite", help="pretrain once and test all held-out compositions")
     suite.add_argument("--pretrain-episodes", type=int, default=600)
     suite.add_argument("--adapt-episodes", type=int, default=250)
     suite.add_argument("--seeds", default="0,1,2,3,4")
-    suite.add_argument("--source-curriculum", choices=("core", "expanded"), default="expanded")
+    suite.add_argument("--source-curriculum", choices=("core", "expanded"), default="core")
     suite.add_argument(
         "--role-factor-mix",
         type=float,

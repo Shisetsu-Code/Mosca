@@ -6,117 +6,107 @@ Mosca treats programming as navigation through a constrained state space rather 
 
 ## Runtime
 
-The world is pinned to **CPython 3.12.14**. Python documentation is not used as model training data.
+The reference world is pinned to **CPython 3.12.14**. Python documentation is not used as model training data.
 
 ## Architecture
 
 ```text
 visible I/O examples
       ↓
-fast sensory signature (no task name)
+fast sensory signature
       ↓
 sparse recurrent policy
       │
       ├── fast TD(lambda) weights
       ├── exact-context slow memory
-      └── compositional concept memory
+      ├── broad concept memory
+      └── gated factor memory
              ↓
-       shared motor semantics
-      ↓
-MotorMaze / typed AST
-      ↓
-CPython compile + execute
-      ↓
-visible-test reward
+       semantic MotorMaze
+             ↓
+       typed AST / CPython
+             ↓
+       compile + execute
+             ↓
+       visible-test reward
 ```
 
-The implementation uses NumPy dense fast-weight / eligibility vectors, while contextual and conceptual long-term memories remain sparse.
+The model does not receive task names as neural input.
 
-## Environments
+## Source curricula
 
-1. `PythonMaze`: original hand-shaped baseline.
-2. `ASTMaze`: generic typed-hole grammar.
-3. `MotorMaze`: hierarchical semantic action space.
-
-The first benchmark programs require about five motor decisions versus roughly 18–26 low-level AST decisions.
-
-## Hidden-test policy
-
-Training reward and probe use only visible cases. Hidden cases never influence action selection, TD updates, MCTS backpropagation, or stopping decisions in the fixed-budget search benchmarks. They are used only to evaluate completed visible solutions.
-
-## Concept and factor memory
-
-Stable relations inferred from visible input/output examples produce broad concepts such as:
-
-```text
-agg:sum
-agg:count
-agg:max
-filter:all
-filter:positive
-filter:negative
-role:identity_zero
-role:list_reduce
-```
-
-v0.10 keeps the v0.9 broad concept memory and adds an independent factor channel. Factor memory learns reusable motor pieces while gated off during source pretraining. On a novel target, the validated defaults are `role_factor_mix=0.30`, `agg_factor_mix=0.15`, and `filter_factor_mix=0.00`. The model does not receive task names such as `sum_list` or `count_positive` as neural input.
-
-## Multi-target transfer suite
-
-Source tasks remain:
+The stable default remains the original **core** curriculum:
 
 - `sum_list`
 - `count_positive`
 - `max_list`
 
-Held-out compositions:
+v0.11 also includes an optional **expanded** curriculum:
 
-| Target | Recombined concepts |
-|---|---|
-| `sum_positive` | `agg:sum` + `filter:positive` |
-| `count_all` | `agg:count` + `filter:all` |
-| `max_positive_or_zero` | `agg:max` + `filter:positive` |
+- the three core tasks
+- `count_negative`
+- `min_list`
 
-Five deterministic seeds, 600 source-pretraining episodes and 250 target-adaptation episodes:
+Use `--source-curriculum expanded` when testing the larger concept bank.
 
-| Target | Transfer success | Scratch success | Mean first solution* | Scratch mean* | Transfer visible-oracle calls* | Scratch calls* | Zero-shot |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `sum_positive` | 5/5 | 4/5 | **48.4** | 142.0 | **271.2** | 622.75 | **1/5** |
-| `count_all` | **3/5** | 1/5 | 17.7 | 77.0 | **113.3** | 253.0 | 0/5 |
-| `max_positive_or_zero` | 5/5 | 5/5 | **43.0** | 78.0 | **245.8** | 299.0 | 0/5 |
+## Held-out compositions
 
-* Means are over seeds that found a hidden-generalizing solution, so success rate must be read with the mean.
+The transfer suite now contains five held-out tasks:
 
-Compared with v0.9, the validated factor channel keeps `sum_positive` roughly neutral on first-solution latency, raises `count_all` transfer robustness from 2/5 to 3/5 seeds, and reduces `max_positive_or_zero` mean first solution from 72.4 to 43.0 episodes. Robust zero-shot composition is still not solved.
+- `sum_positive`
+- `sum_negative`
+- `count_all`
+- `max_positive_or_zero`
+- `min_negative_or_zero`
 
-## MCTS baseline
+Visible cases drive training. Hidden cases are evaluation-only and never enter reward, TD updates, MCTS backpropagation or stopping decisions.
 
-Mosca includes UCT/MCTS over exactly the same `MotorMaze`.
+## Factor memory
 
-Five-seed, 500-simulation baseline:
+The current validated target-time defaults are:
 
-| Task | MCTS success | Mean first hidden-generalizing candidate |
-|---|---:|---:|
-| `sum_list` | 5/5 | 44.8 |
-| `count_positive` | 5/5 | 52.6 |
-| `max_list` | 5/5 | 120.4 |
-| `sum_positive` | 5/5 | 65.2 |
+```text
+role_factor_mix   = 0.30
+agg_factor_mix    = 0.15
+filter_factor_mix = 0.25
+```
 
-For `sum_positive`, MCTS reaches the first hidden-generalizing candidate after about **448.6 visible-oracle calls** on average. The pretrained Mosca agent needs about **278.0 target-task oracle calls**, but Mosca first pays a separate source-pretraining cost. The repository therefore reports both marginal target cost and pretraining cost instead of equating one MCTS simulation with one learning episode.
+The filter gate is intentionally asymmetric in v0.11:
+
+- `filter:negative` is **factor-only**;
+- `filter:positive` and `filter:all` retain the established broad-memory path.
+
+This matters because `count_negative` teaches both “x < 0” and “add 1”. Broad transfer can incorrectly drag the update operation into `sum_negative`. The factor-only path transfers the condition without the source task's update.
+
+The `min_negative_or_zero` target is decomposed as `agg:min + role:identity_zero`, not as an explicit negative filter, because its correct comparison is `x < acc`.
+
+### Expanded-curriculum result
+
+With 1,000 source-pretraining episodes, 250 adaptation episodes and five seeds:
+
+- baseline expanded curriculum: `sum_negative` generalized in **4/5** seeds;
+- negative-filter factor-only at 0.25: **5/5** seeds;
+- mean first generalizing solution improved from **81.2 → 73.4 episodes**;
+- mean visible-oracle calls improved from **455.5 → 409.4**;
+- the other four targets were unchanged seed-for-seed in the final controlled check.
+
+This is the strongest v0.11 change: a localized transfer gain without observed regressions in the rest of the suite.
 
 ## Performance
 
-The original Python implementation spent most of its CPU time repeatedly scoring sparse action components. The current hot path uses:
+The hot path currently uses:
 
 - dense NumPy fast weights;
 - dense vectorized eligibility traces;
 - batched shared-component Q evaluation;
-- cached sparse encoder token hashes;
-- probe evaluation without AST `deepcopy`.
+- cached sparse encoder hashes;
+- AST probe evaluation without `deepcopy`.
 
-On the controlled cProfile workload (`150` pretraining + `80` adaptation episodes), cumulative runtime fell from about **22.34 s to 2.29 s** on the same GitHub Actions runner class.
+On the controlled cProfile workload, cumulative runtime was reduced from roughly **22.34 s to 2.29 s** on the same GitHub Actions runner class.
 
-In the five-seed resource benchmark, target adaptation preserves exactly the same episode/oracle counts while substantially reducing CPU cost. Traced peak memory remains in the single-digit MiB range at the current 8,192-unit expansion width.
+## MCTS baseline
+
+Mosca also includes UCT/MCTS over the same `MotorMaze`. This remains the main classical-search baseline. Mosca reports source-pretraining cost separately from marginal target-task adaptation cost.
 
 ## Run
 
@@ -124,46 +114,48 @@ In the five-seed resource benchmark, target adaptation preserves exactly the sam
 python -m pip install -e .[dev]
 pytest -q
 
-mosca runtime
-mosca rules
-
-mosca motor-benchmark \
-  --episodes 300 \
-  --seed 42 \
-  --require-fly-solved \
-  --require-fly-generalized
-
+# Stable/core behavior
 mosca transfer-suite \
   --pretrain-episodes 600 \
   --adapt-episodes 250 \
   --seeds 0,1,2,3,4
 
-mosca mcts-multiseed \
-  --simulations 500 \
-  --seeds 0,1,2,3,4
-
-mosca resource-benchmark \
-  --seed 0 \
-  --pretrain-episodes 600 \
+# Expanded concept curriculum
+mosca transfer-suite \
+  --pretrain-episodes 1000 \
   --adapt-episodes 250 \
-  --mcts-simulations 500
+  --seeds 0,1,2,3,4 \
+  --source-curriculum expanded
 ```
 
-## Current conclusions
+## Language A/B direction
 
-- Hierarchical motor actions are dramatically easier to search than raw AST-node actions.
-- Sparse recurrent learning reliably transfers useful structure to unseen compositions.
-- Transfer can reduce target-task oracle calls relative to scratch and, on `sum_positive`, relative to MCTS.
-- Pretraining is not free; MCTS remains cheaper for a single isolated problem.
-- Simply increasing concept-memory influence does not make zero-shot robust.
-- Separating broad memory from a low-weight factor channel reduces interference.
-- Structural-role and aggregation factors help when enabled only on novel targets; filter factors remain disabled by default after the ablation.
+The next major comparison is language-level rather than only architecture-level.
+
+For Python versus a custom language, hold constant:
+
+- Mosca topology and hyperparameters;
+- semantic tasks and visible/hidden I/O cases;
+- seeds;
+- interaction/oracle budgets;
+- hardware/compute budget.
+
+Measure:
+
+- episodes and oracle calls to first generalizing solution;
+- CPU/GPU time and memory;
+- action branching factor;
+- semantic decisions per solution;
+- final program runtime and size;
+- zero-shot and adaptation transfer.
+
+The custom language should plug into the same world contract so only the programming environment changes.
 
 ## Next milestones
 
-1. Learn the factor gates instead of fixing them by ablation.
-2. Add more independent source/target concept combinations.
+1. Add a pluggable language-world backend and run Python versus the new language.
+2. Expand beyond one-accumulator list reductions.
 3. Learn motor options instead of predefining the `WHEN` family.
 4. Add a GRU baseline with matched state/action access.
-5. Expand to multiple variables, filters/maps, nested loops and multiple functions.
-6. Compare synthetic sparse topology against FlyWire-derived motifs only after the controlled baselines are strong.
+5. Revisit adaptive factor gates after a larger concept curriculum.
+6. Compare synthetic sparse topology against FlyWire-derived motifs after the benchmark suite is broader.

@@ -1,9 +1,6 @@
 name: transfer-suite
 
 on:
-  push:
-    branches:
-      - exp/transfer-suite-v2
   workflow_dispatch:
 
 jobs:
@@ -24,3 +21,4 @@ jobs:
           --pretrain-episodes 600
           --adapt-episodes 250
           --seeds ${{ matrix.seed }}
+          --source-curriculum core

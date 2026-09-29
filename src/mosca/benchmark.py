@@ -13,7 +13,7 @@ from .tasks import SOURCE_TASKS, TASKS, TRANSFER_TASKS, Task
 
 DEFAULT_TRANSFER_ROLE_FACTOR_MIX = 0.30
 DEFAULT_TRANSFER_AGG_FACTOR_MIX = 0.15
-DEFAULT_TRANSFER_FILTER_FACTOR_MIX = 0.0
+DEFAULT_TRANSFER_FILTER_FACTOR_MIX = 0.25
 
 
 def _source_tasks(source_curriculum: str) -> dict[str, Task]:
@@ -357,7 +357,7 @@ def transfer_benchmark(
     adapt_episodes: int = 200,
     seed: int = 42,
     target_name: str = "sum_positive",
-    source_curriculum: str = "expanded",
+    source_curriculum: str = "core",
 ) -> dict:
     """Pretrain on core tasks, then adapt to a compositional unseen task."""
 
@@ -406,7 +406,7 @@ def transfer_multiseed(
     adapt_episodes: int = 250,
     seeds: tuple[int, ...] = (0, 1, 2, 3, 4),
     target_name: str = "sum_positive",
-    source_curriculum: str = "expanded",
+    source_curriculum: str = "core",
 ) -> dict:
     runs = [
         transfer_benchmark(
@@ -548,7 +548,7 @@ def transfer_suite(
     role_factor_mix: float = DEFAULT_TRANSFER_ROLE_FACTOR_MIX,
     agg_factor_mix: float = DEFAULT_TRANSFER_AGG_FACTOR_MIX,
     filter_factor_mix: float = DEFAULT_TRANSFER_FILTER_FACTOR_MIX,
-    source_curriculum: str = "expanded",
+    source_curriculum: str = "core",
 ) -> dict:
     """Pretrain once per seed, then test several held-out compositions."""
 
