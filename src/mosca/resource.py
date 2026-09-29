@@ -9,8 +9,9 @@ from typing import Callable, TypeVar
 from .benchmark import _learn_motor_episode, _motor_config, _target_config
 from .fly import SparseFlyAgent
 from .mcts import mcts_solve
-from .motor_env import MotorMaze, OracleCounter
+from .motor_env import OracleCounter
 from .tasks import TASKS, TRANSFER_TASKS, Task
+from .worlds import create_world
 
 T = TypeVar("T")
 
@@ -37,9 +38,15 @@ def _fly_until_generalized(
     task: Task,
     episodes: int,
     counter: OracleCounter,
+    world_name: str = "python",
 ) -> dict:
     for episode in range(1, episodes + 1):
-        _, hidden = _learn_motor_episode(agent, task, counter=counter)
+        _, hidden = _learn_motor_episode(
+            agent,
+            task,
+            counter=counter,
+            world_name=world_name,
+        )
         if hidden == 1.0:
             return {
                 "success": True,
@@ -57,6 +64,7 @@ def _transfer_pipeline(
     seed: int,
     pretrain_episodes: int,
     adapt_episodes: int,
+    world_name: str = "python",
 ) -> dict:
     sources = tuple(TASKS.values())
     target = TRANSFER_TASKS["sum_positive"]
@@ -70,6 +78,7 @@ def _transfer_pipeline(
             agent,
             sources[episode % len(sources)],
             counter=pretrain_counter,
+            world_name=world_name,
         )
     pretrain_wall = time.perf_counter() - wall0
     pretrain_cpu = time.process_time() - cpu0
@@ -80,7 +89,11 @@ def _transfer_pipeline(
     wall0 = time.perf_counter()
     cpu0 = time.process_time()
     adaptation = _fly_until_generalized(
-        agent, target, adapt_episodes, adapt_counter
+        agent,
+        target,
+        adapt_episodes,
+        adapt_counter,
+        world_name=world_name,
     )
     adapt_wall = time.perf_counter() - wall0
     adapt_cpu = time.process_time() - cpu0
@@ -96,15 +109,27 @@ def _transfer_pipeline(
         "adapt_wall_seconds": adapt_wall,
         "adapt_cpu_seconds": adapt_cpu,
         "parameters": agent.parameter_count(),
+        "world": world_name,
     }
 
 
-def _scratch_pipeline(seed: int, episodes: int) -> dict:
+def _scratch_pipeline(
+    seed: int,
+    episodes: int,
+    world_name: str = "python",
+) -> dict:
     target = TRANSFER_TASKS["sum_positive"]
     agent = SparseFlyAgent(_target_config(_motor_config(0.0, 0.0, 0.0)), seed=seed)
     counter = OracleCounter()
-    result = _fly_until_generalized(agent, target, episodes, counter)
+    result = _fly_until_generalized(
+        agent,
+        target,
+        episodes,
+        counter,
+        world_name=world_name,
+    )
     result["parameters"] = agent.parameter_count()
+    result["world"] = world_name
     return result
 
 
@@ -112,11 +137,17 @@ def _random_until_generalized(
     task: Task,
     episodes: int,
     seed: int,
+    world_name: str = "python",
 ) -> dict:
     rng = random.Random(seed)
     counter = OracleCounter()
     for episode in range(1, episodes + 1):
-        env = MotorMaze(task, max_steps=8, counter=counter)
+        env = create_world(
+            world_name,
+            task,
+            max_steps=8,
+            counter=counter,
+        )
         while not env.done:
             actions = env.valid_actions()
             if not actions:
@@ -128,11 +159,13 @@ def _random_until_generalized(
                     "success": True,
                     "episodes_used": episode,
                     "oracle": counter.snapshot(),
+                    "world": world_name,
                 }
     return {
         "success": False,
         "episodes_used": episodes,
         "oracle": counter.snapshot(),
+        "world": world_name,
     }
 
 
@@ -142,14 +175,20 @@ def resource_benchmark(
     adapt_episodes: int = 250,
     mcts_simulations: int = 500,
     random_episodes: int = 500,
+    world_name: str = "python",
 ) -> dict:
     target = TRANSFER_TASKS["sum_positive"]
 
     transfer, transfer_resources = _profile(
-        lambda: _transfer_pipeline(seed, pretrain_episodes, adapt_episodes)
+        lambda: _transfer_pipeline(
+            seed,
+            pretrain_episodes,
+            adapt_episodes,
+            world_name,
+        )
     )
     scratch, scratch_resources = _profile(
-        lambda: _scratch_pipeline(seed, adapt_episodes)
+        lambda: _scratch_pipeline(seed, adapt_episodes, world_name)
     )
     mcts, mcts_resources = _profile(
         lambda: mcts_solve(
@@ -157,15 +196,22 @@ def resource_benchmark(
             simulations=mcts_simulations,
             seed=seed,
             stop_on_generalizing=True,
+            world_name=world_name,
         )
     )
     random_result, random_resources = _profile(
-        lambda: _random_until_generalized(target, random_episodes, seed)
+        lambda: _random_until_generalized(
+            target,
+            random_episodes,
+            seed,
+            world_name,
+        )
     )
 
     return {
         "seed": seed,
         "target": target.name,
+        "world": world_name,
         "budgets": {
             "pretrain_episodes": pretrain_episodes,
             "adapt_episodes": adapt_episodes,
