@@ -114,12 +114,12 @@ def mcts_solve(
                 visits.setdefault(prefix, 0)
                 values.setdefault(prefix, 0.0)
                 env = replay(
-            task,
-            prefix,
-            max_steps=max_steps,
-            counter=counter,
-            world_name=world_name,
-        )
+                    task,
+                    prefix,
+                    max_steps=max_steps,
+                    counter=counter,
+                    world_name=world_name,
+                )
                 break
 
             parent_visits = max(1, visits.get(prefix, 0))
@@ -139,12 +139,12 @@ def mcts_solve(
             visits.setdefault(prefix, 0)
             values.setdefault(prefix, 0.0)
             env = replay(
-            task,
-            prefix,
-            max_steps=max_steps,
-            counter=counter,
-            world_name=world_name,
-        )
+                task,
+                prefix,
+                max_steps=max_steps,
+                counter=counter,
+                world_name=world_name,
+            )
 
         # Random rollout from the expanded/selected state.
         rollout = prefix
