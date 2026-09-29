@@ -121,8 +121,10 @@ def task_memory_concepts(task: Task) -> tuple[str, ...]:
         for case in task.cases
     )
     if negative_min:
-        concepts.update((
-            "agg:min", "filter:negative", "role:identity_zero",
-        ))
+        # min([0, *xs]) is a min-reduction with zero identity. The x < 0
+        # filter is redundant and would conflict with the required x < acc
+        # comparison, so keep negative filtering for sum/count tasks only.
+        concepts.update(("agg:min", "role:identity_zero"))
+        concepts.discard("filter:negative")
 
     return tuple(sorted(concepts))
